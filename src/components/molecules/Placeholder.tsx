@@ -4,7 +4,7 @@
 import Image from "next/image";
 
 const Placeholder = () => {
-  return <div className="flex flex-col gap-2">
+  return <div className="flex flex-col gap-2 font-light tracking-tight">
     <div className="flex flex-row">
       <Image src={""} alt={""} />
       <h1 className="text-xl">

@@ -2,10 +2,20 @@
 'use client'
 
 import { useWorkspaceStore } from '@/stores/workspaceStore'
+import { useFrameStore } from '@/stores/frameStore'
 import { useEffect, useRef, useCallback } from 'react'
+import Frame from './Frame'
+import { 
+  TextFrameContent, 
+  ImageFrameContent, 
+  BrowserFrameContent, 
+  CustomFrameContent,
+  HTMLFrameContent 
+} from './FrameContent'
 
 export default function Workspace() {
   const { mode, zoom, panX, panY, setZoom, setPan } = useWorkspaceStore()
+  const { frames, addFrame, clearSelection } = useFrameStore()
   const workspaceRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
   const lastMousePos = useRef({ x: 0, y: 0 })
@@ -32,12 +42,26 @@ export default function Workspace() {
   
   // Mouse drag pan
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 0) { // Left click only
-      isDragging.current = true
-      lastMousePos.current = { x: e.clientX, y: e.clientY }
-      document.body.style.cursor = 'grabbing'
+    if (e.target === workspaceRef.current || (e.target as HTMLElement).closest('.frame-titlebar')) {
+      e.stopPropagation()
+      clearSelection()
+      
+      const startX = e.clientX - panX
+      const startY = e.clientY - panY
+      
+      const handleMouseMove = (e: MouseEvent) => {
+        setPan(e.clientX - startX, e.clientY - startY)
+      }
+      
+      const handleMouseUp = () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+      }
+      
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
     }
-  }, [])
+  }, [panX, panY, setPan, clearSelection])
   
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging.current) {
@@ -93,6 +117,67 @@ export default function Workspace() {
     }
   }, [panX, panY, zoom, setPan, setZoom])
   
+  // Frame creation functions
+  const createTextFrame = useCallback(() => {
+    addFrame({
+      title: 'Text Frame',
+      x: 100,
+      y: 100,
+      width: 300,
+      height: 200,
+      content: <TextFrameContent />,
+      type: 'text'
+    })
+  }, [addFrame])
+  
+  const createImageFrame = useCallback(() => {
+    addFrame({
+      title: 'Image Frame',
+      x: 450,
+      y: 100,
+      width: 250,
+      height: 200,
+      content: <ImageFrameContent />,
+      type: 'image'
+    })
+  }, [addFrame])
+  
+  const createBrowserFrame = useCallback(() => {
+    addFrame({
+      title: 'Browser Frame',
+      x: 100,
+      y: 350,
+      width: 400,
+      height: 300,
+      content: <BrowserFrameContent />,
+      type: 'browser'
+    })
+  }, [addFrame])
+  
+  const createCustomFrame = useCallback(() => {
+    addFrame({
+      title: 'Custom Frame',
+      x: 550,
+      y: 350,
+      width: 250,
+      height: 200,
+      content: <CustomFrameContent />,
+      type: 'custom'
+    })
+  }, [addFrame])
+  
+  const createHTMLFrame = useCallback(() => {
+    addFrame({
+      title: 'HTML Frame',
+      x: 300,
+      y: 200,
+      width: 350,
+      height: 250,
+      content: <HTMLFrameContent />,
+      type: 'custom'
+    })
+  }, [addFrame])
+  
   // Event listeners
   useEffect(() => {
     const workspace = workspaceRef.current
@@ -131,14 +216,56 @@ export default function Workspace() {
         </span>
       </div>
       
+      {/* Frame Creation Buttons */}
+      <div className="absolute top-4 right-4 z-10 bg-white px-3 py-2 rounded-lg shadow-sm border">
+        <div className="text-xs font-medium text-gray-700 mb-2">Create Frames:</div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={createTextFrame}
+            className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+          >
+            Text
+          </button>
+          <button
+            onClick={createImageFrame}
+            className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+          >
+            Image
+          </button>
+          <button
+            onClick={createBrowserFrame}
+            className="px-2 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
+          >
+            Browser
+          </button>
+          <button
+            onClick={createCustomFrame}
+            className="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+          >
+            Custom
+          </button>
+          <button
+            onClick={createHTMLFrame}
+            className="px-2 py-1 text-xs bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors"
+          >
+            HTML
+          </button>
+        </div>
+      </div>
+      
       {/* Instructions */}
-      <div className="absolute top-4 right-4 z-10 bg-white px-3 py-2 rounded-lg shadow-sm border text-xs text-gray-600">
+      <div className="absolute bottom-4 left-4 z-10 bg-white px-3 py-2 rounded-lg shadow-sm border text-xs text-gray-600">
         <div>Scroll to zoom</div>
         <div>Drag to pan</div>
         <div>Arrow keys to pan</div>
         <div>+/- to zoom</div>
         <div>0 to reset</div>
       </div>
+      
+      {/* Frames */}
+      {frames.map((frame) => (
+        <Frame key={frame.id} frame={frame} />
+      ))}
       
       {/* Background content based on mode */}
       <div className="w-full h-full">
