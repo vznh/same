@@ -14,7 +14,7 @@ interface OClientI {
   // tester
   ping(): Promise<boolean>;
   // parse a natural language command into a structured FrameAction
-  parseFrameCommand(text: string): Promise<{ ok: boolean; action?: FrameAction; error?: string }>
+  parseFrameCommand(text: string, frames: { id: string; title: string }[]): Promise<{ ok: boolean; action?: FrameAction; error?: string }>
   // simple chat helper: returns assistant reply text
   chat(messages: { role: 'system' | 'user' | 'assistant'; content: string }[]): Promise<{ ok: boolean; reply?: string }>
 }
@@ -52,16 +52,16 @@ class OClient implements OClientI {
     }
   }
   
-  async parseFrameCommand(text: string): Promise<{ ok: boolean; action?: FrameAction; error?: string }> {
+  async parseFrameCommand(text: string, frames: { id: string; title: string }[]): Promise<{ ok: boolean; action?: FrameAction; error?: string }> {
     if (!this.key) return { ok: false, error: 'Missing API key' }
     try {
       const systemPrompt = `You are an assistant that converts a single user instruction into one JSON action that matches this TypeScript union. Output ONLY raw JSON, no prose.
 
 type FrameType = 'text' | 'image' | 'browser' | 'custom'
 type FrameAction =
-  | { type: 'create'; payload: { title: string; x: number; y: number; width: number; height: number; frameType: FrameType } }
+  | { type: 'create'; payload: { title: string; x?: number; y?: number; width: number; height: number; frameType: FrameType; placement?: Placement } }
   | { type: 'update'; id: string; updates: Partial<{ title: string; x: number; y: number; width: number; height: number; type: FrameType }> }
-  | { type: 'move'; id: string; x: number; y: number }
+  | { type: 'move'; id: string; x?: number; y?: number; placement?: Placement }
   | { type: 'resize'; id: string; width: number; height: number }
   | { type: 'bringToFront'; id: string }
   | { type: 'sendToBack'; id: string }
@@ -69,11 +69,19 @@ type FrameAction =
   | { type: 'clearSelection' }
   | { type: 'delete'; id: string }
 
+type Placement =
+  | { type: 'viewportCenter' }
+  | { type: 'relativeToFrame'; ref: { by: 'id' | 'title'; value: string }; align: 'rightOf' | 'leftOf' | 'above' | 'below' | 'center'; gap?: number }
+
 Rules:
 - Only one action per response.
 - Numbers must be finite.
-- If size or position is missing for create, choose reasonable defaults (x: 200, y: 150, width: 450, height: 350).
+- If size or position is missing for create, choose reasonable defaults (width: 450, height: 350). If x/y omitted, use placement with {type:'viewportCenter'}.
 - If type is ambiguous, default frameType to 'text'.
+- Accept phrases like "center of my screen" as {"placement":{"type":"viewportCenter"}}.
+- Accept phrases like "to the right of <title>" as {"placement":{"type":"relativeToFrame","ref":{"by":"title","value":"<title>"},"align":"rightOf"}}.
+- A list of existing frames will be provided as JSON. When the user refers to a frame by title, you MUST resolve the title to an id from that list and output the id. If multiple frames have the same title or none match, do not guess.
+- If you cannot confidently resolve a referenced frame to a single id, output the JSON: {"type":"clearSelection"} (this will be treated as a no-op) and nothing else.
 - Never include comments or extra keys.`
 
       const response = await axios.post(
@@ -82,6 +90,7 @@ Rules:
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'system', content: systemPrompt },
+            { role: 'user', content: `Frames: ${JSON.stringify(frames)}` },
             { role: 'user', content: text }
           ],
           temperature: 0,

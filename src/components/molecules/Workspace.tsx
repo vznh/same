@@ -10,6 +10,9 @@ import Frame from './Frame'
 import ContextMenu from './ContextMenu'
 import Placeholder from './Placeholder'
 import AgentModal from './AgentModal'
+import FloatingToolbar from './FloatingToolbar'
+import { FrameProvider } from '@/contexts/FrameContext'
+import { contentForKind } from './contentFactory'
 import { 
   TextFrameContent, 
   ImageFrameContent, 
@@ -516,20 +519,7 @@ export default function Workspace() {
         </div>
       </div>
       
-      {/* Reset View Button - Bottom Middle */}
-      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none">
-        <div className="bg-white px-3 py-2 rounded-lg shadow-sm border pointer-events-auto">
-          <button
-            onClick={() => {
-              setZoom(1)
-              setPan(0, 0)
-            }}
-            className="text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
-          >
-            Reset View
-          </button>
-        </div>
-      </div>
+      
       
       {/* Transformed Workspace Canvas */}
       <div 
@@ -604,8 +594,11 @@ export default function Workspace() {
                 {/* Render the active frame content only */}
                 {frames.filter(f=>f.id===fullscreenFrameId).map(f=> (
                   <div key={f.id} className="w-full h-full">
-                    {/* Preserve content state by providing the same context */}
-                    <Frame key={f.id} frame={f} />
+                    <FrameProvider frameId={f.id}>
+                      <div className="w-full h-full">
+                        {f.content || contentForKind(f.type)}
+                      </div>
+                    </FrameProvider>
                   </div>
                 ))}
               </div>
@@ -624,6 +617,14 @@ export default function Workspace() {
 
       {/* Agent Modal */}
       <AgentModal isOpen={isAgentOpen} onClose={() => setIsAgentOpen(false)} />
+
+      {/* Floating Toolbar */}
+      <FloatingToolbar
+        onImageClick={() => {}}
+        onAddClick={() => setIsAgentOpen(true)}
+        onHistoryClick={() => {}}
+        onChatClick={() => setIsAgentOpen(true)}
+      />
     </div>
   )
 } 

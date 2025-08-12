@@ -1,10 +1,11 @@
 // components/molecules/Frame
 'use client'
 
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import { useFrameStore, Frame as FrameType } from '@/stores/frameStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { FrameProvider } from '@/contexts/FrameContext'
+import { contentForKind } from './contentFactory'
 
 interface FrameProps {
   frame: FrameType
@@ -216,6 +217,49 @@ export default function Frame({ frame, children }: FrameProps) {
     }
   }
   
+  // Inline title editing
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(frame.title)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (isEditingTitle) {
+      requestAnimationFrame(() => titleInputRef.current?.focus())
+    }
+  }, [isEditingTitle])
+
+  const startEditTitle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    setTitleDraft(frame.title)
+    setIsEditingTitle(true)
+  }, [frame.title])
+
+  const commitTitle = useCallback(() => {
+    const next = titleDraft.trim()
+    if (next && next !== frame.title) {
+      updateFrame(frame.id, { title: next })
+    }
+    setIsEditingTitle(false)
+  }, [titleDraft, frame.id, frame.title, updateFrame])
+
+  const handleTitleKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commitTitle()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setIsEditingTitle(false)
+      setTitleDraft(frame.title)
+    }
+  }
+
+  // Keep focus after mouse interactions within the frame
+  const handleContainerMouseUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (frameRef.current && (e.target === frameRef.current || frameRef.current.contains(e.target as Node))) {
+      frameRef.current.focus()
+    }
+  }, [])
+
   // Keyboard handling for delete when frame is focused
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -245,23 +289,42 @@ export default function Frame({ frame, children }: FrameProps) {
       onClick={handleFrameClick}
       onMouseDown={handleMouseDown}
       onDoubleClick={handleDoubleClick}
+      onMouseUp={handleContainerMouseUp}
       onKeyDown={handleKeyDown}
       data-frame
       tabIndex={0}
     >
       {/* Floating label outside top-left of frame */}
-      <div
-        className="absolute -top-6 left-0 text-sm font-medium text-gray-500 cursor-pointer"
-        onDoubleClick={handleLabelDoubleClick}
-        onMouseDown={handleLabelMouseDown}
-      >
-        {getFloatingLabel()}
+      <div className="absolute -top-6 left-0 text-sm font-medium text-gray-500 flex items-center gap-2">
+        <span
+          className="cursor-pointer"
+          onDoubleClick={handleLabelDoubleClick}
+          onMouseDown={handleLabelMouseDown}
+        >
+          {getFloatingLabel()}
+        </span>
+        {isEditingTitle ? (
+          <input
+            ref={titleInputRef}
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={handleTitleKeyDown}
+            className="opacity-60 bg-transparent border-b border-gray-300 focus:outline-none focus:border-gray-500 cursor-text"
+          />
+        ) : (
+          frame.title && (
+            <span className="opacity-60 cursor-text" onDoubleClick={startEditTitle}>
+              {frame.title}
+            </span>
+          )
+        )}
       </div>
       
       {/* Frame Content */}
       <div className="w-full h-full p-4 overflow-visible">
         <FrameProvider frameId={frame.id}>
-          {children || frame.content}
+          {children || frame.content || contentForKind(frame.type)}
         </FrameProvider>
       </div>
       

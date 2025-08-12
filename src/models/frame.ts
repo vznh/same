@@ -25,6 +25,7 @@ export interface CreateFramePayload {
   width: number
   height: number
   frameType: FrameType
+  placement?: Placement
 }
 
 export type UpdateFramePayload = Partial<
@@ -35,13 +36,17 @@ export type UpdateFramePayload = Partial<
 export type FrameAction =
   | { type: 'create'; payload: CreateFramePayload }
   | { type: 'update'; id: FrameId; updates: UpdateFramePayload }
-  | { type: 'move'; id: FrameId; x: number; y: number }
+  | { type: 'move'; id: FrameId; x?: number; y?: number; placement?: Placement }
   | { type: 'resize'; id: FrameId; width: number; height: number }
   | { type: 'bringToFront'; id: FrameId }
   | { type: 'sendToBack'; id: FrameId }
   | { type: 'select'; id: FrameId; multiSelect?: boolean }
   | { type: 'clearSelection' }
   | { type: 'delete'; id: FrameId }
+
+export type Placement =
+  | { type: 'viewportCenter' }
+  | { type: 'relativeToFrame'; ref: { by: 'id' | 'title'; value: string }; align: 'rightOf' | 'leftOf' | 'above' | 'below' | 'center'; gap?: number }
 
 export type ValidateActionResult =
   | { ok: true; action: FrameAction }
@@ -61,16 +66,19 @@ export function validateFrameAction(candidate: unknown): ValidateActionResult {
     if (!isObject(payload)) return fail('create.payload must be an object')
     const required = ['title', 'x', 'y', 'width', 'height', 'frameType'] as const
     for (const key of required) {
+      if ((key === 'x' || key === 'y') && 'placement' in payload) continue
       if (!(key in payload)) return fail(`create.payload.${key} is required`)
     }
     if (
       !isString(payload.title) ||
-      !isNumber(payload.x) ||
-      !isNumber(payload.y) ||
+      ((payload.x === undefined || payload.y === undefined) && !isObject(payload.placement)) ||
+      (payload.x !== undefined && !isNumber(payload.x)) ||
+      (payload.y !== undefined && !isNumber(payload.y)) ||
       !isNumber(payload.width) ||
       !isNumber(payload.height) ||
       !isFrameType(payload.frameType)
     ) return fail('create.payload has invalid field types')
+    if (payload.placement !== undefined && !isPlacement(payload.placement)) return fail('create.payload.placement invalid')
     return ok({ type: 'create', payload: payload as unknown as CreateFramePayload })
   }
 
@@ -93,8 +101,12 @@ export function validateFrameAction(candidate: unknown): ValidateActionResult {
   }
 
   if (actionType === 'move') {
-    const { id, x, y } = c
+    const { id, x, y, placement } = c as any
     if (!isString(id)) return fail('move.id must be a string')
+    if (placement !== undefined) {
+      if (!isPlacement(placement)) return fail('move.placement invalid')
+      return ok({ type: 'move', id: id as string, placement })
+    }
     if (!isNumber(x) || !isNumber(y)) return fail('move.x/move.y must be numbers')
     return ok({ type: 'move', id: id as string, x: x as number, y: y as number })
   }
@@ -161,5 +173,20 @@ function isNumber(value: unknown): value is number {
 
 function isFrameType(value: unknown): value is FrameType {
   return value === 'text' || value === 'image' || value === 'browser' || value === 'custom'
+}
+
+function isPlacement(value: unknown): value is Placement {
+  if (!isObject(value)) return false
+  const t = (value as any).type
+  if (t === 'viewportCenter') return true
+  if (t === 'relativeToFrame') {
+    const v = value as any
+    const ref = v.ref
+    if (!ref || (ref.by !== 'id' && ref.by !== 'title') || !isString(ref.value)) return false
+    if (!['rightOf', 'leftOf', 'above', 'below', 'center'].includes(v.align)) return false
+    if (v.gap !== undefined && !isNumber(v.gap)) return false
+    return true
+  }
+  return false
 }
 

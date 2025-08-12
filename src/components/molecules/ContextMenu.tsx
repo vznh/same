@@ -94,7 +94,8 @@ const ContextMenu = ({ isVisible, position, screenPosition, onClose }: ContextMe
       width: 450, // Increased width to better fit content
       height: 350, // Increased height to better fit content
       content,
-      type: (option.frameType === 'component' || option.frameType === 'plan') ? 'custom' : option.frameType
+      // Persist correct kind so content restores after refresh
+      type: option.frameType === 'component' ? 'custom' : option.frameType
     })
     
     onClose()

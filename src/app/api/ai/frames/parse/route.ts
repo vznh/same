@@ -1,6 +1,7 @@
 // app/api/ai/frames/parse – parse NL into a FrameAction
 import { NextRequest, NextResponse } from 'next/server'
 import helperClient from '@/services/helperClient'
+import { useFrameStore } from '@/stores/frameStore'
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +11,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Missing text' }, { status: 400 })
     }
 
-    const result = await helperClient.parseFrameCommand(text)
+    // Snapshot frames (id + title) for resolver context
+    const frames = useFrameStore.getState().frames.map(f => ({ id: f.id, title: f.title }))
+    const result = await helperClient.parseFrameCommand(text, frames)
     const status = result.ok ? 200 : 400
     return NextResponse.json(result, { status })
   } catch (e) {

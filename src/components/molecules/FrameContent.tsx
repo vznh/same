@@ -6,6 +6,7 @@ import { QuestionMarkCircledIcon, DrawingPinIcon, ArrowUpIcon, PlusCircledIcon }
 import axios from 'axios'
 import { useFrameContext } from '@/contexts/FrameContext'
 import { usePlanChatStore } from '@/stores/planChatStore'
+import Image from 'next/image'
 
 // Text Frame Content
 export function TextFrameContent() {
@@ -130,7 +131,7 @@ export function ImageFrameContent() {
           }`}
         >
           {previewSrc ? (
-            <img src={previewSrc} alt="Uploaded" className="max-h-[234px] max-w-full rounded" />
+            <Image src={previewSrc} alt="Uploaded" className="max-h-[234px] max-w-full rounded" />
           ) : (
             <div className="flex items-center space-x-3">
               <svg
