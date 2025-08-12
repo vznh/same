@@ -18,16 +18,38 @@ export default function Workspace() {
   const { frames, addFrame, clearSelection } = useFrameStore()
   const workspaceRef = useRef<HTMLDivElement>(null)
   
-  // Trackpad panning only - no zoom on scroll
+  // Trackpad panning and cursor origin zoom
   const handleWheel = useCallback((e: WheelEvent) => {
+    // Always prevent default to stop browser navigation (back/forward tabs)
     e.preventDefault()
     
-    // Only handle trackpad pan gestures (deltaX/deltaY)
-    if (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) > 0) {
+    // Check if this is a trackpad pan (deltaX/deltaY) vs zoom (deltaY only)
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || Math.abs(e.deltaX) > 0) {
+      // This is a trackpad pan gesture
       const panSensitivity = 1.5
       setPan(panX - e.deltaX * panSensitivity, panY - e.deltaY * panSensitivity)
+      return
     }
-  }, [panX, panY, setPan])
+    
+    // This is a zoom gesture - zoom towards cursor position
+    const delta = e.deltaY > 0 ? 0.95 : 1.05
+    const newZoom = Math.max(0.1, Math.min(5, zoom * delta))
+    
+    // Zoom towards mouse cursor position
+    if (workspaceRef.current) {
+      const rect = workspaceRef.current.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      
+      // Calculate new pan to keep cursor position stable
+      const scaleRatio = newZoom / zoom
+      const newPanX = mouseX - (mouseX - panX) * scaleRatio
+      const newPanY = mouseY - (mouseY - panY) * scaleRatio
+      
+      setZoom(newZoom)
+      setPan(newPanX, newPanY)
+    }
+  }, [zoom, panX, panY, setZoom, setPan])
   
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -205,9 +227,25 @@ export default function Workspace() {
       <div className="fixed bottom-4 left-4 z-50 pointer-events-none">
         <div className="bg-white px-3 py-2 rounded-lg shadow-sm border pointer-events-auto text-xs text-gray-600">
           <div>Two-finger trackpad to pan</div>
+          <div>Scroll to zoom</div>
           <div>Arrow keys to pan</div>
           <div>+/- to zoom</div>
           <div>Space/0 to reset</div>
+        </div>
+      </div>
+      
+      {/* Reset View Button - Bottom Middle */}
+      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none">
+        <div className="bg-white px-3 py-2 rounded-lg shadow-sm border pointer-events-auto">
+          <button
+            onClick={() => {
+              setZoom(1)
+              setPan(0, 0)
+            }}
+            className="text-xs text-gray-600 hover:text-gray-800 underline cursor-pointer"
+          >
+            Reset View
+          </button>
         </div>
       </div>
       
