@@ -3,7 +3,8 @@
 
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useFrameStore } from '@/stores/frameStore'
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
+import { motion } from 'framer-motion'
 import Frame from './Frame'
 import { 
   TextFrameContent, 
@@ -18,6 +19,81 @@ export default function Workspace() {
   const { frames, addFrame, clearSelection } = useFrameStore()
   const workspaceRef = useRef<HTMLDivElement>(null)
   
+  // Grid animation states
+  const [gridOpacity, setGridOpacity] = useState(0.1) // Default 10%
+  const [isPanning, setIsPanning] = useState(false)
+  const [isDraggingFrame, setIsDraggingFrame] = useState(false)
+  
+  // Pan boundary states
+  const [boundaryFadeOpacity, setBoundaryFadeOpacity] = useState(0)
+  const [boundaryDirection, setBoundaryDirection] = useState<'none' | 'left' | 'right' | 'top' | 'bottom'>('none')
+  
+  // Pan boundaries configuration
+  const PAN_BOUNDARIES = {
+    minX: -800,
+    maxX: 800,
+    minY: -600,
+    maxY: 600,
+    fadeDistance: 200, // Distance from boundary where fade starts
+  }
+  
+  // Constrained pan function with smooth boundaries
+  const constrainedPan = useCallback((newPanX: number, newPanY: number) => {
+    let constrainedX = newPanX
+    let constrainedY = newPanY
+    let fadeOpacity = 0
+    let direction: 'none' | 'left' | 'right' | 'top' | 'bottom' = 'none'
+    
+    // X-axis constraints
+    if (newPanX < PAN_BOUNDARIES.minX) {
+      constrainedX = PAN_BOUNDARIES.minX
+      if (newPanX < PAN_BOUNDARIES.minX + PAN_BOUNDARIES.fadeDistance) {
+        fadeOpacity = Math.max(0, (PAN_BOUNDARIES.minX + PAN_BOUNDARIES.fadeDistance - newPanX) / PAN_BOUNDARIES.fadeDistance * 0.3)
+        direction = 'left'
+      }
+    } else if (newPanX > PAN_BOUNDARIES.maxX) {
+      constrainedX = PAN_BOUNDARIES.maxX
+      if (newPanX > PAN_BOUNDARIES.maxX - PAN_BOUNDARIES.fadeDistance) {
+        fadeOpacity = Math.max(0, (newPanX - (PAN_BOUNDARIES.maxX - PAN_BOUNDARIES.fadeDistance)) / PAN_BOUNDARIES.fadeDistance * 0.3)
+        direction = 'right'
+      }
+    }
+    
+    // Y-axis constraints
+    if (newPanY < PAN_BOUNDARIES.minY) {
+      constrainedY = PAN_BOUNDARIES.minY
+      if (newPanY < PAN_BOUNDARIES.minY + PAN_BOUNDARIES.fadeDistance) {
+        fadeOpacity = Math.max(fadeOpacity, (PAN_BOUNDARIES.minY + PAN_BOUNDARIES.fadeDistance - newPanY) / PAN_BOUNDARIES.fadeDistance * 0.3)
+        direction = direction === 'none' ? 'top' : direction
+      }
+    } else if (newPanY > PAN_BOUNDARIES.maxY) {
+      constrainedY = PAN_BOUNDARIES.maxY
+      if (newPanY > PAN_BOUNDARIES.maxY - PAN_BOUNDARIES.fadeDistance) {
+        fadeOpacity = Math.max(fadeOpacity, (newPanY - (PAN_BOUNDARIES.maxY - PAN_BOUNDARIES.fadeDistance)) / PAN_BOUNDARIES.fadeDistance * 0.3)
+        direction = direction === 'none' ? 'bottom' : direction
+      }
+    }
+    
+    // Update boundary fade state
+    setBoundaryFadeOpacity(fadeOpacity)
+    setBoundaryDirection(direction)
+    
+    // Apply constrained pan
+    setPan(constrainedX, constrainedY)
+  }, [setPan])
+  
+  // Monitor frame dragging state for grid opacity
+  useEffect(() => {
+    const anyFrameDragging = frames.some(frame => frame.isDragging)
+    if (anyFrameDragging && !isDraggingFrame) {
+      setIsDraggingFrame(true)
+      setGridOpacity(0.2) // 20% opacity when dragging frames
+    } else if (!anyFrameDragging && isDraggingFrame) {
+      setIsDraggingFrame(false)
+      setGridOpacity(0.1) // Back to 10% opacity
+    }
+  }, [frames, isDraggingFrame])
+  
   // Trackpad panning and cursor origin zoom
   const handleWheel = useCallback((e: WheelEvent) => {
     // Always prevent default to stop browser navigation (back/forward tabs)
@@ -27,7 +103,19 @@ export default function Workspace() {
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || Math.abs(e.deltaX) > 0) {
       // This is a trackpad pan gesture
       const panSensitivity = 1.5
-      setPan(panX - e.deltaX * panSensitivity, panY - e.deltaY * panSensitivity)
+      const newPanX = panX - e.deltaX * panSensitivity
+      const newPanY = panY - e.deltaY * panSensitivity
+      
+      // Use constrained pan
+      constrainedPan(newPanX, newPanY)
+      
+      // Reduce grid opacity during panning
+      setIsPanning(true)
+      setGridOpacity(0.05) // 5% opacity
+      
+      // Reset panning state after a short delay
+      setTimeout(() => setIsPanning(false), 150)
+      setTimeout(() => setGridOpacity(0.1), 200)
       return
     }
     
@@ -47,9 +135,9 @@ export default function Workspace() {
       const newPanY = mouseY - (mouseY - panY) * scaleRatio
       
       setZoom(newZoom)
-      setPan(newPanX, newPanY)
+      constrainedPan(newPanX, newPanY)
     }
-  }, [zoom, panX, panY, setZoom, setPan])
+  }, [zoom, panX, panY, setZoom, constrainedPan])
   
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -59,19 +147,28 @@ export default function Workspace() {
     switch (e.key) {
       case 'ArrowUp':
         e.preventDefault()
-        setPan(panX, panY + panAmount)
+        constrainedPan(panX, panY + panAmount)
+        // Reduce grid opacity during keyboard panning
+        setGridOpacity(0.05)
+        setTimeout(() => setGridOpacity(0.1), 200)
         break
       case 'ArrowDown':
         e.preventDefault()
-        setPan(panX, panY - panAmount)
+        constrainedPan(panX, panY - panAmount)
+        setGridOpacity(0.05)
+        setTimeout(() => setGridOpacity(0.1), 200)
         break
       case 'ArrowLeft':
         e.preventDefault()
-        setPan(panX + panAmount, panY)
+        constrainedPan(panX + panAmount, panY)
+        setGridOpacity(0.05)
+        setTimeout(() => setGridOpacity(0.1), 200)
         break
       case 'ArrowRight':
         e.preventDefault()
-        setPan(panX - panAmount, panY)
+        constrainedPan(panX - panAmount, panY)
+        setGridOpacity(0.05)
+        setTimeout(() => setGridOpacity(0.1), 200)
         break
       case '=':
       case '+':
@@ -85,15 +182,15 @@ export default function Workspace() {
       case '0':
         e.preventDefault()
         setZoom(1)
-        setPan(0, 0)
+        constrainedPan(0, 0)
         break
       case ' ':
         e.preventDefault()
         setZoom(1)
-        setPan(0, 0)
+        constrainedPan(0, 0)
         break
     }
-  }, [panX, panY, zoom, setPan, setZoom])
+  }, [panX, panY, zoom, setZoom, constrainedPan])
   
   // Frame creation functions - spawn frames in visible center area
   const createTextFrame = useCallback(() => {
@@ -170,6 +267,77 @@ export default function Workspace() {
     }
   }, [handleWheel, handleKeyDown])
   
+  // Animated Grid Component
+  const AnimatedGrid = () => (
+    <motion.div
+      className="absolute inset-0 pointer-events-none"
+      style={{
+        backgroundImage: `
+          linear-gradient(rgba(0, 0, 0, ${gridOpacity}) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 0, 0, ${gridOpacity}) 1px, transparent 1px)
+        `,
+        backgroundSize: '20px 20px',
+      }}
+      animate={{ opacity: gridOpacity }}
+      transition={{ duration: 0.2, ease: 'easeInOut' }}
+    />
+  )
+  
+  // Boundary Gradient Fade Component
+  const BoundaryGradient = () => {
+    if (boundaryFadeOpacity === 0) return null
+    
+    const getGradientStyle = () => {
+      switch (boundaryDirection) {
+        case 'left':
+          return {
+            background: `linear-gradient(to right, rgba(0, 0, 0, ${boundaryFadeOpacity}) 0%, transparent 100%)`,
+            left: 0,
+            top: 0,
+            width: '100px',
+            height: '100%',
+          }
+        case 'right':
+          return {
+            background: `linear-gradient(to left, rgba(0, 0, 0, ${boundaryFadeOpacity}) 0%, transparent 100%)`,
+            right: 0,
+            top: 0,
+            width: '100px',
+            height: '100%',
+          }
+        case 'top':
+          return {
+            background: `linear-gradient(to bottom, rgba(0, 0, 0, ${boundaryFadeOpacity}) 0%, transparent 100%)`,
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100px',
+          }
+        case 'bottom':
+          return {
+            background: `linear-gradient(to top, rgba(0, 0, 0, ${boundaryFadeOpacity}) 0%, transparent 100%)`,
+            left: 0,
+            bottom: 0,
+            width: '100%',
+            height: '100px',
+          }
+        default:
+          return {}
+      }
+    }
+    
+    return (
+      <motion.div
+        className="absolute pointer-events-none z-10"
+        style={getGradientStyle()}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3, ease: 'easeInOut' }}
+      />
+    )
+  }
+  
   return (
     <div className="w-full h-full relative overflow-auto bg-gray-100">
       {/* Fixed UI Controls - Outside transformed workspace */}
@@ -181,6 +349,17 @@ export default function Workspace() {
           <span className="ml-2 text-xs text-gray-500">
             Zoom: {Math.round(zoom * 100)}%
           </span>
+          <div className="text-xs text-gray-400 mt-1">
+            Grid: {Math.round(gridOpacity * 100)}% {isDraggingFrame ? '(Dragging)' : isPanning ? '(Panning)' : ''}
+          </div>
+          <div className="text-xs text-gray-400 mt-1">
+            Pan: ({Math.round(panX)}, {Math.round(panY)})
+          </div>
+          {boundaryDirection !== 'none' && (
+            <div className="text-xs text-orange-500 mt-1">
+              Boundary: {boundaryDirection} ({Math.round(boundaryFadeOpacity * 100)}%)
+            </div>
+          )}
         </div>
       </div>
       
@@ -260,6 +439,12 @@ export default function Workspace() {
           minHeight: '2000px',
         }}
       >
+        {/* Animated Grid Background */}
+        <AnimatedGrid />
+        
+        {/* Boundary Gradient Fade */}
+        <BoundaryGradient />
+        
         {/* Frames */}
         {frames.map((frame) => (
           <Frame key={frame.id} frame={frame} />
