@@ -3,6 +3,8 @@
 
 import { useRef, useCallback } from 'react'
 import { useFrameStore, Frame as FrameType } from '@/stores/frameStore'
+import { useWorkspaceStore } from '@/stores/workspaceStore'
+import { FrameProvider } from '@/contexts/FrameContext'
 
 interface FrameProps {
   frame: FrameType
@@ -11,6 +13,7 @@ interface FrameProps {
 
 export default function Frame({ frame, children }: FrameProps) {
   const { updateFrame, selectFrame, bringToFront, deleteFrame } = useFrameStore()
+  const { enterFullscreen } = useWorkspaceStore()
   const frameRef = useRef<HTMLDivElement>(null)
   const dragPosRef = useRef<{ x: number; y: number } | null>(null)
   
@@ -19,7 +22,29 @@ export default function Frame({ frame, children }: FrameProps) {
     e.stopPropagation()
     selectFrame(frame.id, e.metaKey || e.ctrlKey)
     bringToFront(frame.id)
+    // Ensure the frame receives keyboard focus for in-frame actions/scrolling
+    frameRef.current?.focus()
   }, [frame.id, selectFrame, bringToFront])
+
+  // Fullscreen on double click
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    // Respect frames that should not enter fullscreen (e.g., placeholders)
+    if ((frame as any).flags?.disableFullscreen) return
+    enterFullscreen(frame.id)
+  }, [enterFullscreen, frame.id])
+
+  // Fullscreen when double-clicking the floating label
+  const handleLabelDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    if ((frame as any).flags?.disableFullscreen) return
+    enterFullscreen(frame.id)
+  }, [enterFullscreen, frame.id])
+
+  const handleLabelMouseDown = useCallback((e: React.MouseEvent) => {
+    // Prevent drag from initiating when the label is the target
+    e.stopPropagation()
+  }, [])
   
     // Handle dragging
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -123,7 +148,7 @@ export default function Frame({ frame, children }: FrameProps) {
     }
     
     // Handle dragging (clicking on the frame or non-interactive descendants)
-    const isInteractive = !!target.closest('input, textarea, button, [contenteditable="true"]')
+    const isInteractive = !!target.closest('input, textarea, select, button, [contenteditable="true"], [data-scrollable]')
     if (!isInteractive && (e.target === frameRef.current || (frameRef.current && frameRef.current.contains(target)))) {
       e.stopPropagation()
       selectFrame(frame.id)
@@ -170,6 +195,9 @@ export default function Frame({ frame, children }: FrameProps) {
       
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
+    } else if (isInteractive) {
+      // Do not initiate dragging when interacting with scrollable or form elements
+      return
     }
   }, [frame.id, frame.x, frame.y, frame.width, frame.height, selectFrame, bringToFront, updateFrame])
   
@@ -216,18 +244,25 @@ export default function Frame({ frame, children }: FrameProps) {
       }}
       onClick={handleFrameClick}
       onMouseDown={handleMouseDown}
+      onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
       data-frame
       tabIndex={0}
     >
       {/* Floating label outside top-left of frame */}
-      <div className="absolute -top-6 left-0 text-sm font-medium text-gray-500 pointer-events-none">
+      <div
+        className="absolute -top-6 left-0 text-sm font-medium text-gray-500 cursor-pointer"
+        onDoubleClick={handleLabelDoubleClick}
+        onMouseDown={handleLabelMouseDown}
+      >
         {getFloatingLabel()}
       </div>
       
       {/* Frame Content */}
       <div className="w-full h-full p-4 overflow-visible">
-        {children || frame.content}
+        <FrameProvider frameId={frame.id}>
+          {children || frame.content}
+        </FrameProvider>
       </div>
       
       {/* Resize Handles (sides + corners) */}

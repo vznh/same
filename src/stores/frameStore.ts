@@ -1,5 +1,8 @@
 // stores/frameStore
+'use client'
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import { contentForKind, FrameKind } from '@/components/molecules/contentFactory'
 
 export interface Frame {
   id: string
@@ -9,7 +12,7 @@ export interface Frame {
   width: number
   height: number
   content: React.ReactNode
-  type: 'text' | 'image' | 'browser' | 'custom'
+  type: FrameKind
   zIndex: number
   isSelected: boolean
   isResizing: boolean
@@ -34,7 +37,7 @@ interface FrameState {
   resizeFrame: (id: string, width: number, height: number) => void
 }
 
-export const useFrameStore = create<FrameState>((set, get) => ({
+export const useFrameStore = create<FrameState>()(persist((set, get) => ({
   frames: [],
   selectedFrameIds: [],
   nextZIndex: 1,
@@ -141,4 +144,29 @@ export const useFrameStore = create<FrameState>((set, get) => ({
       )
     }))
   },
-})) 
+}), {
+  name: 'frame-store-v1',
+  storage: createJSONStorage(() => localStorage),
+  // Don't persist non-serializable React nodes
+  partialize: (state) => ({
+    frames: state.frames.map(f => ({
+      ...f,
+      content: undefined as unknown as React.ReactNode,
+    })),
+    selectedFrameIds: state.selectedFrameIds,
+    nextZIndex: state.nextZIndex,
+  }) as unknown as FrameState,
+  onRehydrateStorage: () => (state) => {
+    // Rebuild content nodes based on type after hydration
+    if (!state) return
+    const framesWithContent = state.frames.map(f => ({
+      ...f,
+      content: contentForKind(f.type),
+    }))
+    // Use set from closure
+    // @ts-expect-error set is available in outer scope
+    const setState = (useFrameStore as any).setState || get().updateFrame
+    // Replace entire frames array to ensure content is restored
+    set((s) => ({ ...s, frames: framesWithContent }))
+  }
+}))

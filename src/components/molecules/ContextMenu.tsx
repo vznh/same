@@ -128,8 +128,8 @@ const ContextMenu = ({ isVisible, position, screenPosition, onClose }: ContextMe
         >
           <div className="bg-white rounded-[10px] shadow-lg border border-gray-200 py-3 min-w-[280px]">
             {/* Title */}
-            <div className="px-4 pb-3 border-b border-gray-100">
-              <h3 className="text-sm font-medium text-gray-700 tracking-tight">
+            <div className="px-4 pb-2 border-b border-gray-100">
+              <h3 className="text-xs opacity-40 tracking-tight">
                 Add Frame
               </h3>
             </div>

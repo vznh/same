@@ -5,9 +5,11 @@ import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useFrameStore } from '@/stores/frameStore'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
+import { AspectRatioIcon } from '@radix-ui/react-icons'
 import Frame from './Frame'
 import ContextMenu from './ContextMenu'
 import Placeholder from './Placeholder'
+import AgentModal from './AgentModal'
 import { 
   TextFrameContent, 
   ImageFrameContent, 
@@ -16,12 +18,42 @@ import {
 } from './FrameContent'
 
 export default function Workspace() {
-  const { mode, zoom, panX, panY, setZoom, setPan } = useWorkspaceStore()
+  const { mode, zoom, panX, panY, setZoom, setPan, isFullscreen, fullscreenFrameId, fullscreenAspect, exitFullscreen, setFullscreenAspect } = useWorkspaceStore()
+  const [fsWidth, setFsWidth] = useState<number>(0)
+  const [fsHeight, setFsHeight] = useState<number>(0)
+
+  // Compute fitted fullscreen box on aspect change or resize
+  const recomputeFullscreenBox = useCallback(() => {
+    const vw = Math.max(0, window.innerWidth)
+    const vh = Math.max(0, window.innerHeight)
+    const maxW = vw * 0.9
+    const maxH = vh * 0.85
+    const [rw, rh] = fullscreenAspect === '16:9' ? [16, 9] : fullscreenAspect === '4:3' ? [4, 3] : [9, 16]
+    // Fit inside maxW x maxH preserving ratio
+    const widthByH = maxH * (rw / rh)
+    const heightByW = maxW * (rh / rw)
+    if (widthByH <= maxW) {
+      setFsWidth(widthByH)
+      setFsHeight(maxH)
+    } else {
+      setFsWidth(maxW)
+      setFsHeight(heightByW)
+    }
+  }, [fullscreenAspect])
+
+  useEffect(() => {
+    if (!isFullscreen) return
+    recomputeFullscreenBox()
+    const onResize = () => recomputeFullscreenBox()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [isFullscreen, fullscreenAspect, recomputeFullscreenBox])
   const { frames, addFrame, clearSelection } = useFrameStore()
   const workspaceRef = useRef<HTMLDivElement>(null)
   
   const [isPanning, setIsPanning] = useState(false)
   const [isDraggingFrame, setIsDraggingFrame] = useState(false)
+  const [isAgentOpen, setIsAgentOpen] = useState(false)
   
   // Pan boundary states
   const [boundaryFadeOpacity, setBoundaryFadeOpacity] = useState(0)
@@ -161,6 +193,12 @@ export default function Workspace() {
   
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Ignore when typing in inputs/textareas/contenteditable inside frames
+    const target = e.target as HTMLElement | null
+    if (target) {
+      const isTyping = target.closest('input, textarea, [contenteditable="true"]') !== null
+      if (isTyping) return
+    }
     const panAmount = 50
     const zoomAmount = 0.1
     
@@ -450,6 +488,14 @@ export default function Workspace() {
               Boundary: {boundaryDirection} ({Math.round(boundaryFadeOpacity * 100)}%)
             </div>
           )}
+          <div className="mt-2">
+            <button
+              onClick={() => setIsAgentOpen(true)}
+              className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 border"
+            >
+              Open Agent
+            </button>
+          </div>
         </div>
       </div>
       
@@ -513,6 +559,60 @@ export default function Workspace() {
           </div>
         </div>
       )}
+
+      {/* Fullscreen Overlay */}
+      {isFullscreen && (
+        <div className="fixed inset-0 z-50">
+          {/* Backdrop layer - captures click to exit */}
+          <div className="absolute inset-0 bg-black/40" onClick={exitFullscreen} />
+          {/* Device selector */}
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 text-gray-800 tracking-tight">
+            <div className="inline-flex items-center gap-1 bg-white/90 backdrop-blur rounded-[6px] px-1.5 py-1 text-xs shadow-sm">
+              <button
+                className={`inline-flex items-center gap-1 rounded-[6px] px-2 py-1 ${fullscreenAspect==='16:9' ? 'font-semibold text-gray-900' : 'text-gray-600'}`}
+                onClick={(e)=>{e.preventDefault(); e.stopPropagation(); setFullscreenAspect('16:9')}}
+              >
+                {fullscreenAspect==='16:9' && <AspectRatioIcon className="w-3.5 h-3.5" />}
+                Desktop
+              </button>
+              <button
+                className={`inline-flex items-center gap-1 rounded-[6px] px-2 py-1 ${fullscreenAspect==='4:3' ? 'font-semibold text-gray-900' : 'text-gray-600'}`}
+                onClick={(e)=>{e.preventDefault(); e.stopPropagation(); setFullscreenAspect('4:3')}}
+              >
+                {fullscreenAspect==='4:3' && <AspectRatioIcon className="w-3.5 h-3.5" />}
+                Tablet
+              </button>
+              <button
+                className={`inline-flex items-center gap-1 rounded-[6px] px-2 py-1 ${fullscreenAspect==='9:16' ? 'font-semibold text-gray-900' : 'text-gray-600'}`}
+                onClick={(e)=>{e.preventDefault(); e.stopPropagation(); setFullscreenAspect('9:16')}}
+              >
+                {fullscreenAspect==='9:16' && <AspectRatioIcon className="w-3.5 h-3.5" />}
+                Phone
+              </button>
+            </div>
+          </div>
+          {/* Centered frame */}
+          <div className="absolute inset-0 flex items-center justify-center p-6 pointer-events-none">
+            <div className="relative w-full h-full flex items-center justify-center">
+              <div
+                className="bg-white shadow-xl rounded-lg overflow-auto pointer-events-auto"
+                style={{
+                  width: fsWidth,
+                  height: fsHeight
+                }}
+              >
+                {/* Render the active frame content only */}
+                {frames.filter(f=>f.id===fullscreenFrameId).map(f=> (
+                  <div key={f.id} className="w-full h-full">
+                    {/* Preserve content state by providing the same context */}
+                    <Frame key={f.id} frame={f} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Context Menu */}
       <ContextMenu
@@ -521,6 +621,9 @@ export default function Workspace() {
         screenPosition={contextMenu.screenPosition}
         onClose={closeContextMenu}
       />
+
+      {/* Agent Modal */}
+      <AgentModal isOpen={isAgentOpen} onClose={() => setIsAgentOpen(false)} />
     </div>
   )
 } 

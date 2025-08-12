@@ -3,6 +3,9 @@
 
 import { useRef, useState, useEffect } from 'react'
 import { QuestionMarkCircledIcon, DrawingPinIcon, ArrowUpIcon, PlusCircledIcon } from '@radix-ui/react-icons'
+import axios from 'axios'
+import { useFrameContext } from '@/contexts/FrameContext'
+import { usePlanChatStore } from '@/stores/planChatStore'
 
 // Text Frame Content
 export function TextFrameContent() {
@@ -228,9 +231,39 @@ export function HTMLFrameContent() {
 
 // Plan/Chat Frame Content (scrollable chat with helper text)
 export function PlanFrameContent() {
-  const [messages, setMessages] = useState<string[]>([])
+  const { frameId } = useFrameContext()
+  const { conversations, appendMessage } = usePlanChatStore()
+  const messages = conversations[frameId] || []
   const [draft, setDraft] = useState('')
   const draftRef = useRef<HTMLTextAreaElement | null>(null)
+  const [isSending, setIsSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const SYSTEM_PROMPT = `You are an AI assistant. When the user shares a rough idea, respond with concise, direct questions to clarify and specify the concept. Avoid unnecessary enthusiasm or commentary. Your questions should:
+ • Be brief and to the point.
+ • Focus on extracting specific details (e.g., audience, purpose, features, constraints).
+ • Build logically on previous answers.
+ • Avoid suggestions or advice unless requested.
+
+Example Interaction:
+
+User: I want to make an app that helps people read more books.
+
+AI: Who is the target user?
+User: Casual readers.
+AI: What’s their main obstacle?
+User: Motivation.
+AI: Preferred method: reminders, social features, or gamification?
+User: Gamification.
+AI: What rewards do you want to include?
+
+Instructions for the AI:
+ • After each user idea, ask a direct, specific question.
+ • Keep questions short and focused.
+ • Do not express interest or encouragement.
+ • Continue until the idea is fully detailed or the user is done.
+
+Let me know if you want this tailored for a specific platform or use case.`
 
   const resize = () => {
     if (!draftRef.current) return
@@ -242,12 +275,33 @@ export function PlanFrameContent() {
     resize()
   }, [draft])
 
-  const send = () => {
+  const send = async () => {
     const text = draft.trim()
-    if (!text) return
-    setMessages((prev) => [...prev, text])
+    if (!text || isSending) return
+    setError(null)
+    // Optimistically append user message
+    appendMessage(frameId, { role: 'user', content: text })
     setDraft('')
-    // resize will run from effect
+    setIsSending(true)
+    try {
+      const res = await axios.post('/api/ai/chat', {
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          ...messages,
+          { role: 'user', content: text },
+        ],
+      })
+      const data = res.data as { ok: boolean; reply?: string; error?: string }
+      if (!data.ok || !data.reply) {
+        setError(data.error || 'No reply')
+        return
+      }
+      appendMessage(frameId, { role: 'assistant', content: data.reply as string })
+    } catch (e) {
+      setError('Request failed')
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const onKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
@@ -266,10 +320,18 @@ export function PlanFrameContent() {
       <div className="h-px w-full bg-gray-200/70" />
 
       {/* Chat area */}
-      <div className="flex-1 overflow-y-auto py-6 space-y-3">
+
+      <div className="flex-1 overflow-y-auto py-6 space-y-3" data-scrollable>
         {messages.map((m, i) => (
-          <div key={i} className="max-w-[85%] rounded-lg bg-white border border-gray-200 px-3 py-2 text-sm text-gray-800 shadow-sm">
-            {m}
+          <div
+            key={i}
+            className={`max-w-[85%] rounded-lg px-3 py-2 text-sm shadow-sm border ${
+              m.role === 'assistant'
+                ? 'bg-white border-gray-200 text-gray-800'
+                : 'bg-blue-600 border-blue-700 text-white ml-auto'
+            }`}
+          >
+            {m.content}
           </div>
         ))}
         {/* Helper text - hidden when more than 1 message exists */}
@@ -277,6 +339,9 @@ export function PlanFrameContent() {
           <div className="text-gray-900/40 text-base select-none">
             If you still have a plan, and want to flesh it out a bit more
           </div>
+        )}
+        {error && (
+          <div className="text-[12px] text-red-600">{error}</div>
         )}
       </div>
 
@@ -294,6 +359,7 @@ export function PlanFrameContent() {
           />
           <button
             onClick={send}
+            disabled={isSending}
             className="w-7 h-7 bg-gray-100 rounded-[10px] flex items-center justify-center text-gray-700 hover:bg-gray-200 transition-colors"
             aria-label="Send"
           >
