@@ -6,6 +6,8 @@ import { useFrameStore, Frame as FrameType } from '@/stores/frameStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { FrameProvider } from '@/contexts/FrameContext'
 import { contentForKind } from './contentFactory'
+import { useConnectionStore } from '@/stores/connectionStore'
+import { PlusCircledIcon } from '@radix-ui/react-icons'
 
 interface FrameProps {
   frame: FrameType
@@ -13,23 +15,40 @@ interface FrameProps {
 }
 
 export default function Frame({ frame, children }: FrameProps) {
-  const { updateFrame, selectFrame, bringToFront, deleteFrame } = useFrameStore()
+  const { updateFrame, selectFrame, bringToFront, deleteFrame, selectFrames, moveSelectedBy, setDraggingForSelected } = useFrameStore()
   const { enterFullscreen } = useWorkspaceStore()
+  const { getConnectedComponent, startPending, updatePendingCursor, clearPending, addConnection, hasConnectionBetween, draggingEndpoint, reattachEndpoint, clearDragEndpoint } = useConnectionStore()
   const frameRef = useRef<HTMLDivElement>(null)
   const dragPosRef = useRef<{ x: number; y: number } | null>(null)
+  const [showPlus, setShowPlus] = useState(false)
+  const [plusPos, setPlusPos] = useState<{ left: number; top: number } | null>(null)
+  const [activeSide, setActiveSide] = useState<'left' | 'right' | null>(null)
   
   // Handle frame selection
   const handleFrameClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     const target = e.target as HTMLElement
     const isInteractive = !!target.closest('input, textarea, select, button, [contenteditable="true"], [data-scrollable]')
-    selectFrame(frame.id, e.metaKey || e.ctrlKey)
+      || !!target.closest('[data-connection-ui]')
+    // Component selection behavior
+    const componentIds = getConnectedComponent(frame.id)
+    if (componentIds.length > 1) {
+      const selected = useFrameStore.getState().selectedFrameIds
+      const isComponentFullySelected = componentIds.every(id => selected.includes(id))
+      if (isComponentFullySelected) {
+        selectFrames([frame.id])
+      } else {
+        selectFrames(componentIds)
+      }
+    } else {
+      selectFrame(frame.id, e.metaKey || e.ctrlKey)
+    }
     bringToFront(frame.id)
     if (!isInteractive) {
       // Only focus the frame when not interacting with inner controls
       frameRef.current?.focus()
     }
-  }, [frame.id, selectFrame, bringToFront])
+  }, [frame.id, selectFrame, bringToFront, getConnectedComponent, selectFrames, frame.isSelected])
 
   // Fullscreen on double click
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
@@ -134,13 +153,7 @@ export default function Frame({ frame, children }: FrameProps) {
             break
         }
 
-        updateFrame(frame.id, {
-          x: newX,
-          y: newY,
-          width: newW,
-          height: newH,
-          isResizing: true,
-        })
+        updateFrame(frame.id, { x: newX, y: newY, width: newW, height: newH, isResizing: true })
       }
 
       const handleMouseUp = () => {
@@ -158,7 +171,13 @@ export default function Frame({ frame, children }: FrameProps) {
     const isInteractive = !!target.closest('input, textarea, select, button, [contenteditable="true"], [data-scrollable]')
     if (!isInteractive && (e.target === frameRef.current || (frameRef.current && frameRef.current.contains(target)))) {
       e.stopPropagation()
-      selectFrame(frame.id)
+      // Ensure selection matches connected component before dragging
+      const componentIds = getConnectedComponent(frame.id)
+      if (componentIds.length > 1) {
+        selectFrames(componentIds)
+      } else {
+        selectFrame(frame.id)
+      }
       bringToFront(frame.id)
       // Ensure the frame receives keyboard focus for Backspace/Delete handling
       frameRef.current?.focus()
@@ -174,25 +193,27 @@ export default function Frame({ frame, children }: FrameProps) {
       const handleMouseMove = (e: MouseEvent) => {
         if (document.pointerLockElement) {
           if (dragPosRef.current) {
-            dragPosRef.current.x += e.movementX
-            dragPosRef.current.y += e.movementY
-            updateFrame(frame.id, {
-              x: dragPosRef.current.x,
-              y: dragPosRef.current.y,
-              isDragging: true
-            })
+            const dx = e.movementX
+            const dy = e.movementY
+            dragPosRef.current.x += dx
+            dragPosRef.current.y += dy
+            moveSelectedBy(dx, dy)
           }
         } else {
-          updateFrame(frame.id, {
-            x: e.clientX - startX,
-            y: e.clientY - startY,
-            isDragging: true
-          })
+          // If connection UI is active, do not drag
+          if (useConnectionStore.getState().pendingFromFrameId || useConnectionStore.getState().draggingEndpoint) {
+            return
+          }
+          const newX = e.clientX - startX
+          const newY = e.clientY - startY
+          const dx = newX - frame.x
+          const dy = newY - frame.y
+          moveSelectedBy(dx, dy)
         }
       }
       
       const handleMouseUp = () => {
-        updateFrame(frame.id, { isDragging: false })
+        setDraggingForSelected(false)
         if (document.pointerLockElement) {
           try { document.exitPointerLock() } catch {}
         }
@@ -405,27 +426,91 @@ export default function Frame({ frame, children }: FrameProps) {
       }
     }
   }, [deleteFrame, frame.id])
+
+  // Detection zones on left/right sides: handlers make the plus icon follow the mouse
+  const handleDetectMove = useCallback((side: 'left' | 'right') => (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!frameRef.current) return
+    const detectRect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+    const p = Math.min(1, Math.max(0, (e.clientY - detectRect.top) / detectRect.height))
+    const topWithin = frame.height * (0.2 + 0.6 * p)
+    // Gravitational horizontal offset based on how far the cursor moves outward in the detection band
+    const dxRatio = side === 'left'
+      ? Math.min(1, Math.max(0, (detectRect.right - e.clientX) / detectRect.width))
+      : Math.min(1, Math.max(0, (e.clientX - detectRect.left) / detectRect.width))
+    const baseOffset = 12 // starting distance outside the side
+    const extra = 28 * dxRatio // move farther out as cursor goes outward
+    const left = side === 'left' ? -(baseOffset + extra) : frame.width + (baseOffset + extra)
+    setActiveSide(side)
+    setShowPlus(true)
+    setPlusPos({ left, top: topWithin })
+  }, [frame.height, frame.width])
+
+  const handleDetectEnter = useCallback((side: 'left' | 'right') => (e: React.MouseEvent<HTMLDivElement>) => {
+    setActiveSide(side)
+    setShowPlus(true)
+  }, [])
+
+  const handleDetectLeave = useCallback(() => {
+    setShowPlus(false)
+    setPlusPos(null)
+    setActiveSide(null)
+  }, [])
+
+  const onPlusMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Use the actual screen coordinates of the icon center as the anchor
+    const btn = e.currentTarget as HTMLButtonElement
+    const br = btn.getBoundingClientRect()
+    const anchor = { x: br.left + br.width / 2, y: br.top + br.height / 2 }
+    startPending(frame.id, anchor)
+  }, [frame.id, startPending])
+
+  // Pending tracking is handled globally in workspace
+
+  const onFrameMouseUp = useCallback((e: React.MouseEvent) => {
+    const state = useConnectionStore.getState()
+    if (state.pendingFromFrameId && state.pendingFromFrameId !== frame.id) {
+      if (!hasConnectionBetween(state.pendingFromFrameId, frame.id)) {
+        addConnection(state.pendingFromFrameId, frame.id)
+      }
+      clearPending()
+    }
+  }, [addConnection, clearPending, frame.id, hasConnectionBetween])
+
+  const onFrameMouseUpReattach = useCallback(() => {
+    const state = useConnectionStore.getState()
+    if (state.draggingEndpoint) {
+      reattachEndpoint(state.draggingEndpoint.connectionId, state.draggingEndpoint.endpoint, frame.id)
+      clearDragEndpoint()
+    }
+  }, [reattachEndpoint, frame.id, clearDragEndpoint])
   
   return (
     <div
       ref={frameRef}
-      className={`absolute bg-white border-2 rounded-lg shadow-lg cursor-move tracking-tight ${
-        frame.isSelected 
-          ? 'border-blue-500 ring-2 ring-blue-200' 
-          : 'border-gray-300 hover:border-gray-400'
-      } ${frame.isDragging ? 'opacity-80' : ''}`}
+      className={`absolute bg-white rounded-lg shadow-lg cursor-move tracking-tight ${frame.isDragging ? 'opacity-80' : ''}`}
       style={{
         left: frame.x,
         top: frame.y,
         width: frame.width,
         height: frame.height,
         zIndex: frame.zIndex,
+        borderWidth: 2,
+        borderStyle: 'solid',
+        borderColor: frame.borderColor || (frame.isSelected ? '#3b82f6' : '#d1d5db'),
+        boxShadow: frame.isSelected ? '0 0 0 3px rgba(59,130,246,0.25)' : undefined,
       }}
       onClick={handleFrameClick}
-      onMouseDown={handleMouseDown}
+      onMouseDown={(e)=>{
+        // If interacting with connection UI, do not start dragging the frame
+        const target = e.target as HTMLElement
+        if (target.closest('[data-connection-ui]')) return
+        handleMouseDown(e)
+      }}
+      onMouseUp={(e)=>{ onFrameMouseUp(e); onFrameMouseUpReattach(); handleContainerMouseUp(e) }}
       onDoubleClick={handleDoubleClick}
       onTouchStart={handleTouchStart}
-      onMouseUp={handleContainerMouseUp}
       onKeyDown={handleKeyDown}
       data-frame
       tabIndex={0}
@@ -475,6 +560,39 @@ export default function Frame({ frame, children }: FrameProps) {
       <div className="absolute -bottom-1 -left-1 w-3 h-3 cursor-sw-resize resize-handle" data-dir="bottom-left" />
       <div className="absolute -top-1 -right-1 w-3 h-3 cursor-ne-resize resize-handle" data-dir="top-right" />
       <div className="absolute -top-1 -left-1 w-3 h-3 cursor-nw-resize resize-handle" data-dir="top-left" />
+
+      {/* Plus handle for connection creation */}
+      {showPlus && plusPos && (
+        <button
+          className="absolute pointer-events-auto cursor-grab bg-transparent"
+          style={{ left: plusPos.left, top: plusPos.top, width: 24, height: 24, transform: 'translate(-50%, -50%)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }}
+          onMouseDown={onPlusMouseDown}
+          title="Connect"
+          data-connection-ui
+        >
+          <PlusCircledIcon className="w-5 h-5 text-gray-600" />
+        </button>
+      )}
+
+      {/* Detection zones (left/right), only middle 60% vertical band */}
+      <div
+        className="absolute cursor-grab"
+        style={{ left: -48, width: 48, top: frame.height * 0.2, height: frame.height * 0.6, zIndex: 15 }}
+        onMouseEnter={handleDetectEnter('left')}
+        onMouseMove={handleDetectMove('left')}
+        onMouseLeave={handleDetectLeave}
+        onMouseDown={(e)=>{ e.preventDefault(); e.stopPropagation() }}
+        data-connection-ui
+      />
+      <div
+        className="absolute cursor-grab"
+        style={{ right: -48, width: 48, top: frame.height * 0.2, height: frame.height * 0.6, zIndex: 15 }}
+        onMouseEnter={handleDetectEnter('right')}
+        onMouseMove={handleDetectMove('right')}
+        onMouseLeave={handleDetectLeave}
+        onMouseDown={(e)=>{ e.preventDefault(); e.stopPropagation() }}
+        data-connection-ui
+      />
     </div>
   )
 }

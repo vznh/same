@@ -7,6 +7,8 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import { AspectRatioIcon } from '@radix-ui/react-icons'
 import Frame from './Frame'
+import ConnectionsLayer from './ConnectionsLayer'
+import { useConnectionStore } from '@/stores/connectionStore'
 import ContextMenu from './ContextMenu'
 import Placeholder from './Placeholder'
 import AgentModal from './AgentModal'
@@ -52,6 +54,7 @@ export default function Workspace() {
     return () => window.removeEventListener('resize', onResize)
   }, [isFullscreen, fullscreenAspect, recomputeFullscreenBox])
   const { frames, addFrame, clearSelection } = useFrameStore()
+  const { selectConnection, removeConnection, selectedConnectionId, startPending, clearPending, updatePendingCursor, connections } = useConnectionStore()
   const workspaceRef = useRef<HTMLDivElement>(null)
   
   const [isPanning, setIsPanning] = useState(false)
@@ -243,6 +246,25 @@ export default function Workspace() {
         break
     }
   }, [panX, panY, zoom, setZoom, constrainedPan])
+
+  // Track cursor globally for pending connection and endpoint dragging
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => updatePendingCursor(e.clientX, e.clientY)
+    const onUp = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      const isOverFrame = !!target?.closest('[data-frame]')
+      // Only clear if the mouseup is NOT over a frame; otherwise, let the frame handle connection creation
+      if (!isOverFrame) {
+        clearPending()
+      }
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [updatePendingCursor, clearPending])
   
   // Frame creation functions - spawn frames in visible center area
   const createTextFrame = useCallback(() => {
@@ -307,8 +329,12 @@ export default function Workspace() {
   
   // Mouse event handlers for context menu
   const handleMouseDown = useCallback((e: MouseEvent) => {
-    // Only handle right mouse button or if not clicking on a frame
-    if (e.button === 2 || e.target === workspaceRef.current) {
+    // Open context menu when holding on empty canvas (not a frame or connection)
+    const target = e.target as HTMLElement | null
+    const isOnFrame = !!target?.closest('[data-frame]')
+    const isOnConnection = !!target?.closest('[data-connection]')
+    const isCanvasArea = target === workspaceRef.current || (!isOnFrame && !isOnConnection)
+    if (e.button === 2 || isCanvasArea) {
       isMouseDownRef.current = true
       
       // Start 500ms timer for context menu
@@ -342,6 +368,18 @@ export default function Workspace() {
   const handleContextMenu = useCallback((e: MouseEvent) => {
     e.preventDefault() // Prevent default context menu
   }, [])
+
+  // Global key handling for deleting selected connection when focus is on canvas
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedConnectionId) {
+        e.preventDefault()
+        removeConnection(selectedConnectionId)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [removeConnection, selectedConnectionId])
   
   const closeContextMenu = useCallback(() => {
     setContextMenu({ isVisible: false, position: { x: 0, y: 0 }, screenPosition: { x: 0, y: 0 } })
@@ -397,6 +435,29 @@ export default function Workspace() {
     }
   }, [])
   
+  // Compute and apply component colors to frame borders based on connection colors
+  const computeFrameBorderColors = useCallback(() => {
+    const colorForFrame: Record<string, string | undefined> = {}
+    for (const c of connections) {
+      colorForFrame[c.a] = colorForFrame[c.a] || c.color
+      colorForFrame[c.b] = colorForFrame[c.b] || c.color
+    }
+    return colorForFrame
+  }, [connections])
+
+  useEffect(() => {
+    const colors = computeFrameBorderColors()
+    // apply colors to frames
+    frames.forEach(f => {
+      const color = colors[f.id]
+      if (color && f.borderColor !== color) {
+        useFrameStore.getState().updateFrame(f.id, { borderColor: color })
+      } else if (!color && f.borderColor) {
+        useFrameStore.getState().updateFrame(f.id, { borderColor: undefined })
+      }
+    })
+  }, [connections, frames, computeFrameBorderColors])
+
   // Event listeners
   useEffect(() => {
     const workspace = workspaceRef.current
@@ -534,11 +595,17 @@ export default function Workspace() {
               >
           {/* Boundary Gradient Fade */}
         <BoundaryGradient />
+        {/* Connections behind frames (lower z-index within this stacking context) */}
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
+          <ConnectionsLayer frames={frames} containerRef={workspaceRef} zoom={zoom} panX={panX} panY={panY} />
+        </div>
         
         {/* Frames */}
-        {frames.map((frame) => (
-          <Frame key={frame.id} frame={frame} />
-        ))}
+        <div className="absolute inset-0" style={{ zIndex: 1 }}>
+          {frames.map((frame) => (
+            <Frame key={frame.id} frame={frame} />
+          ))}
+        </div>
       </div>
 
       {/* Screen-centered placeholder overlay (not transformed with workspace) */}

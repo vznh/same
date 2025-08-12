@@ -134,7 +134,9 @@ function validateNode(node: any): UINode | null {
       return { type: 'Image', props: sanitize(node.props, ['src', 'alt', 'className']) }
     case 'List':
       if (node.children && !Array.isArray(node.children)) return null
-      const children = Array.isArray(node.children) ? node.children.map(validateNode).filter((n): n is TextNode => !!n && n.type==='Text') : undefined
+      const children = Array.isArray(node.children)
+        ? (node.children.map(validateNode).filter((n: UINode | null): n is TextNode => !!n && n.type === 'Text'))
+        : undefined
       return { type: 'List', props: sanitize(node.props, ['ordered', 'className']), children }
     case 'Divider':
       return { type: 'Divider', props: sanitize(node.props, ['className']) }

@@ -14,10 +14,14 @@ interface FrameRectLike {
 
 interface ConnectionsLayerProps {
   frames: FrameRectLike[]
+  containerRef: React.RefObject<HTMLDivElement>
+  zoom: number
+  panX: number
+  panY: number
 }
 
-export const ConnectionsLayer: React.FC<ConnectionsLayerProps> = ({ frames }) => {
-  const { connections, selectedConnectionId, pendingFromFrameId, pendingCursor, draggingEndpoint } = useConnectionStore()
+export const ConnectionsLayer: React.FC<ConnectionsLayerProps> = ({ frames, containerRef, zoom, panX, panY }) => {
+  const { connections, selectedConnectionId, pendingFromFrameId, pendingCursor, pendingAnchor, draggingEndpoint } = useConnectionStore()
   const framesById = React.useMemo(() => {
     const map: Record<string, { x: number; y: number; width: number; height: number }> = {}
     for (const f of frames) map[f.id] = { x: f.x, y: f.y, width: f.width, height: f.height }
@@ -29,12 +33,18 @@ export const ConnectionsLayer: React.FC<ConnectionsLayerProps> = ({ frames }) =>
     if (!pendingFromFrameId || !pendingCursor) return null
     const rect = framesById[pendingFromFrameId]
     if (!rect) return null
-    const cx = rect.x + rect.width / 2
-    const cy = rect.y + rect.height / 2
-    const p1 = intersectFromCenter(rect, { x: pendingCursor.x, y: pendingCursor.y })
-    const d = pathForCurve(p1, pendingCursor)
+    const containerRect = containerRef.current?.getBoundingClientRect()
+    if (!containerRect) return null
+    const cursor = {
+      x: (pendingCursor.x - containerRect.left - panX) / zoom,
+      y: (pendingCursor.y - containerRect.top - panY) / zoom,
+    }
+    const p1 = pendingAnchor
+      ? { x: (pendingAnchor.x - containerRect.left - panX) / zoom, y: (pendingAnchor.y - containerRect.top - panY) / zoom }
+      : intersectFromCenter(rect, cursor)
+    const d = pathForCurve(p1, cursor)
     return d
-  }, [pendingFromFrameId, pendingCursor, framesById])
+  }, [pendingFromFrameId, pendingCursor, pendingAnchor, framesById, containerRef, zoom, panX, panY])
 
   // Dragging endpoint path (endpoint follows cursor)
   const draggingPath = React.useMemo(() => {
@@ -44,15 +54,19 @@ export const ConnectionsLayer: React.FC<ConnectionsLayerProps> = ({ frames }) =>
     const fixedFrameId = draggingEndpoint.endpoint === 'a' ? conn.b : conn.a
     const rect = framesById[fixedFrameId]
     if (!rect) return null
-    const cx = rect.x + rect.width / 2
-    const cy = rect.y + rect.height / 2
-    const p1 = intersectFromCenter(rect, pendingCursor)
-    const d = pathForCurve(p1, pendingCursor)
+    const containerRect = containerRef.current?.getBoundingClientRect()
+    if (!containerRect) return null
+    const cursor = {
+      x: (pendingCursor.x - containerRect.left - panX) / zoom,
+      y: (pendingCursor.y - containerRect.top - panY) / zoom,
+    }
+    const p1 = intersectFromCenter(rect, cursor)
+    const d = pathForCurve(p1, cursor)
     return d
-  }, [draggingEndpoint, pendingCursor, connections, framesById])
+  }, [draggingEndpoint, pendingCursor, connections, framesById, containerRef, zoom, panX, panY])
 
   return (
-    <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+    <svg className="absolute inset-0 w-full h-full" style={{ overflow: 'visible' }}>
       {/* Existing connections */}
       {connections.map(c => (
         <Connector
@@ -62,6 +76,7 @@ export const ConnectionsLayer: React.FC<ConnectionsLayerProps> = ({ frames }) =>
           bFrameId={c.b}
           framesById={framesById}
           isSelected={selectedConnectionId === c.id}
+          color={c.color}
         />
       ))}
 

@@ -9,6 +9,7 @@ import { usePlanChatStore } from '@/stores/planChatStore'
 import RenderNode from './RenderNode'
 import { validateUINode, UINode } from '@/models/uiNode'
 import { useFrameStore } from '@/stores/frameStore'
+import { useConnectionStore } from '@/stores/connectionStore'
 import Image from 'next/image'
 
 // Text Frame Content
@@ -378,9 +379,27 @@ Behavior:
     setDraft('')
     setIsSending(true)
     try {
+      // Aggregate context from connected frames (recent messages)
+      const connectedIds = useConnectionStore.getState().getConnectedComponent(frameId).filter(id => id !== frameId)
+      const frames = useFrameStore.getState().frames
+      const conversations = usePlanChatStore.getState().conversations
+      let contextBlock = ''
+      if (connectedIds.length > 0) {
+        const parts: string[] = []
+        parts.push('Context from connected frames:')
+        for (const id of connectedIds) {
+          const f = frames.find(fr => fr.id === id)
+          const title = f?.title || id
+          const msgs = (conversations[id] || []).slice(-8)
+          const transcript = msgs.map(m => `${m.role === 'assistant' ? 'AI' : 'User'}: ${m.content}`).join('\n')
+          parts.push(`- Frame: ${title}${transcript ? `\n${transcript}` : ''}`)
+        }
+        contextBlock = parts.join('\n')
+      }
       const res = await axios.post('/api/ai/plan/step', {
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
+          ...(contextBlock ? [{ role: 'system', content: contextBlock }] as const : []),
           ...messages,
           { role: 'user', content: text },
         ],
@@ -478,7 +497,7 @@ Behavior:
         )}
         {messages.length >= 1 && !isReady && (
           <div className="text-xs text-gray-500 select-none">
-            Say <span className="font-medium">ready to build</span> when you're confident
+            Say <span className="font-medium">ready to build</span> when you&apos;re confident
           </div>
         )}
         {error && (

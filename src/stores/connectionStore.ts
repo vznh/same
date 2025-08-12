@@ -8,6 +8,7 @@ export interface Connection {
   // Undirected connection between two frames
   a: string
   b: string
+  color: string
 }
 
 export type EndpointKey = 'a' | 'b'
@@ -24,6 +25,7 @@ interface ConnectionState {
   // Pending creation (user started from a frame, following cursor)
   pendingFromFrameId: string | null
   pendingCursor: CursorPosition | null
+  pendingAnchor: CursorPosition | null
 
   // Endpoint reattach state
   draggingEndpoint: { connectionId: string; endpoint: EndpointKey } | null
@@ -34,7 +36,7 @@ interface ConnectionState {
   removeConnectionsForFrame: (frameId: string) => void
   selectConnection: (connectionId: string | null) => void
 
-  startPending: (fromFrameId: string) => void
+  startPending: (fromFrameId: string, anchor?: CursorPosition) => void
   updatePendingCursor: (x: number, y: number) => void
   clearPending: () => void
 
@@ -57,6 +59,7 @@ export const useConnectionStore = create<ConnectionState>()(
       selectedConnectionId: null,
       pendingFromFrameId: null,
       pendingCursor: null,
+      pendingAnchor: null,
       draggingEndpoint: null,
 
       addConnection: (a, b) => {
@@ -67,7 +70,8 @@ export const useConnectionStore = create<ConnectionState>()(
           return ca === na && cb === nb
         })) return
         const id = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-        set(state => ({ connections: [...state.connections, { id, a: na, b: nb }] }))
+        const color = randomDarkRainbowColor()
+        set(state => ({ connections: [...state.connections, { id, a: na, b: nb, color }] }))
       },
 
       removeConnection: (connectionId) => {
@@ -86,9 +90,9 @@ export const useConnectionStore = create<ConnectionState>()(
 
       selectConnection: (connectionId) => set({ selectedConnectionId: connectionId }),
 
-      startPending: (fromFrameId) => set({ pendingFromFrameId: fromFrameId }),
+      startPending: (fromFrameId, anchor) => set({ pendingFromFrameId: fromFrameId, pendingAnchor: anchor ?? null }),
       updatePendingCursor: (x, y) => set({ pendingCursor: { x, y } }),
-      clearPending: () => set({ pendingFromFrameId: null, pendingCursor: null }),
+      clearPending: () => set({ pendingFromFrameId: null, pendingCursor: null, pendingAnchor: null }),
 
       startDragEndpoint: (connectionId, endpoint) => set({ draggingEndpoint: { connectionId, endpoint } }),
       clearDragEndpoint: () => set({ draggingEndpoint: null }),
@@ -154,4 +158,11 @@ export const useConnectionStore = create<ConnectionState>()(
     }
   )
 )
+
+function randomDarkRainbowColor(): string {
+  const hue = Math.floor(Math.random() * 360)
+  const saturation = 80
+  const lightness = 30
+  return `hsl(${hue} ${saturation}% ${lightness}%)`
+}
 

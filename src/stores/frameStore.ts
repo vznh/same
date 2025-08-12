@@ -2,6 +2,7 @@
 'use client'
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import { useConnectionStore } from './connectionStore'
 import { contentForKind, FrameKind } from '@/components/molecules/contentFactory'
 
 export interface Frame {
@@ -17,6 +18,7 @@ export interface Frame {
   isSelected: boolean
   isResizing: boolean
   isDragging: boolean
+  borderColor?: string
 }
 
 interface FrameState {
@@ -71,6 +73,9 @@ export const useFrameStore = create<FrameState>()(persist((set, get) => ({
   },
   
   deleteFrame: (id) => {
+    // Remove frame and its connections
+    const { removeConnectionsForFrame } = useConnectionStore.getState()
+    removeConnectionsForFrame(id)
     set((state) => ({
       frames: state.frames.filter(frame => frame.id !== id),
       selectedFrameIds: state.selectedFrameIds.filter(frameId => frameId !== id)
@@ -199,12 +204,12 @@ export const useFrameStore = create<FrameState>()(persist((set, get) => ({
     selectedFrameIds: [],
     nextZIndex: state.nextZIndex,
   }) as unknown as FrameState,
-  onRehydrateStorage: () => (state) => {
+  onRehydrateStorage: () => (_state) => {
     // Rebuild content nodes based on type after hydration
-    if (!state) return
-    set((s) => ({
-      ...s,
-      frames: s.frames.map(f => ({ ...f, content: contentForKind(f.type) })),
-    }))
+    const curr = useFrameStore.getState()
+    useFrameStore.setState({
+      ...curr,
+      frames: curr.frames.map((f) => ({ ...f, content: contentForKind(f.type) })),
+    })
   }
 }))

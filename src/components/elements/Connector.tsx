@@ -16,6 +16,7 @@ export interface ConnectorProps {
   bFrameId: string
   framesById: Record<string, Rect>
   isSelected: boolean
+  color: string
 }
 
 function getCenter(rect: Rect) {
@@ -68,7 +69,7 @@ function pathForCurve(p1: { x: number; y: number }, p2: { x: number; y: number }
   return `M ${p1.x},${p1.y} C ${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`
 }
 
-export const Connector: React.FC<ConnectorProps> = ({ id, aFrameId, bFrameId, framesById, isSelected }) => {
+export const Connector: React.FC<ConnectorProps> = ({ id, aFrameId, bFrameId, framesById, isSelected, color }) => {
   const { selectConnection, startDragEndpoint } = useConnectionStore()
 
   const aRect = framesById[aFrameId]
@@ -81,7 +82,7 @@ export const Connector: React.FC<ConnectorProps> = ({ id, aFrameId, bFrameId, fr
   const bAnchor = lineRectIntersection({ x: bcx, y: bcy }, bRect, { x: acx, y: acy })
   const d = pathForCurve(aAnchor, bAnchor)
 
-  const stroke = isSelected ? '#2563eb' : '#9ca3af'
+  const stroke = color
   const strokeWidth = isSelected ? 3 : 2
 
   const onSelect = (e: React.MouseEvent) => {
@@ -95,7 +96,7 @@ export const Connector: React.FC<ConnectorProps> = ({ id, aFrameId, bFrameId, fr
   }
 
   return (
-    <g>
+    <g data-connection data-connection-id={id}>
       <path d={d} stroke={stroke} strokeWidth={strokeWidth} fill="none" onMouseDown={onSelect} />
       {/* Endpoint handles */}
       <circle cx={aAnchor.x} cy={aAnchor.y} r={6} fill="#fff" stroke={stroke} strokeWidth={2} onMouseDown={onDragEndpoint('a')} />
@@ -103,8 +104,8 @@ export const Connector: React.FC<ConnectorProps> = ({ id, aFrameId, bFrameId, fr
       {/* Emphasis rings when selected */}
       {isSelected && (
         <>
-          <circle cx={aAnchor.x} cy={aAnchor.y} r={10} fill="none" stroke="#bfdbfe" strokeWidth={2} />
-          <circle cx={bAnchor.x} cy={bAnchor.y} r={10} fill="none" stroke="#bfdbfe" strokeWidth={2} />
+          <circle cx={aAnchor.x} cy={aAnchor.y} r={10} fill="none" stroke={stroke} strokeOpacity={0.3} strokeWidth={3} />
+          <circle cx={bAnchor.x} cy={bAnchor.y} r={10} fill="none" stroke={stroke} strokeOpacity={0.3} strokeWidth={3} />
         </>
       )}
     </g>
