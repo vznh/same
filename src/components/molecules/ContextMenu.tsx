@@ -1,99 +1,169 @@
-// components/molecules/ContextMenu
 'use client'
 
+import { useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useFrameStore } from '@/stores/frameStore'
 import { 
   ImageIcon, 
   TextIcon, 
-  CubeIcon 
+  LayersIcon,
+  CubeIcon
 } from '@radix-ui/react-icons'
+import { 
+  TextFrameContent, 
+  ImageFrameContent, 
+  CustomFrameContent, 
+  PlanFrameContent
+} from './FrameContent'
 
 interface ContextMenuProps {
   isVisible: boolean
-  x: number
-  y: number
-  onCreateTextFrame: () => void
-  onCreateImageFrame: () => void
-  onCreateCustomFrame: () => void
+  position: { x: number; y: number }
+  screenPosition: { x: number; y: number }
+  onClose: () => void
 }
 
-export default function ContextMenu({ 
-  isVisible, 
-  x, 
-  y, 
-  onCreateTextFrame, 
-  onCreateImageFrame, 
-  onCreateCustomFrame 
-}: ContextMenuProps) {
+interface MenuOption {
+  id: string
+  title: string
+  subtitle: string
+  icon: React.ReactNode
+  frameType: 'image' | 'text' | 'component' | 'plan'
+}
+
+const MENU_OPTIONS: MenuOption[] = [
+  {
+    id: 'image',
+    title: 'Start from image',
+    subtitle: 'Generate components using an image from reference',
+    icon: <ImageIcon className="w-5 h-5" />,
+    frameType: 'image'
+  },
+  {
+    id: 'text',
+    title: 'Start from text',
+    subtitle: 'Generate and edit from text',
+    icon: <TextIcon className="w-5 h-5" />,
+    frameType: 'text'
+  },
+  {
+    id: 'plan',
+    title: 'Start from planning',
+    subtitle: 'Plan, iterate, and draft step-by-step',
+    icon: <CubeIcon className="w-5 h-5" />,
+    frameType: 'plan'
+  }
+]
+
+const ContextMenu = ({ isVisible, position, screenPosition, onClose }: ContextMenuProps) => {
+  const { addFrame } = useFrameStore()
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Calculate menu position (menu's bottom-left corner slightly offset from cursor)
+  const menuPosition = {
+    left: screenPosition.x + 10, // 10px to the right of cursor
+    top: screenPosition.y - 140, // 140px above cursor so bottom-left of menu is near cursor
+  }
+
+  // Handle frame creation
+  const handleOptionClick = useCallback((option: MenuOption) => {
+    // Get the appropriate content component based on frame type
+    let content
+    switch (option.frameType) {
+      case 'text':
+        content = <TextFrameContent />
+        break
+      case 'image':
+        content = <ImageFrameContent />
+        break
+      case 'plan':
+        content = <PlanFrameContent />
+        break
+      case 'component':
+        content = <CustomFrameContent />
+        break
+      default:
+        content = <div className="p-4 text-gray-600">New {option.frameType} frame</div>
+    }
+    
+    // Create frame at the original mouse click position
+    addFrame({
+      title: `${option.title} Frame`,
+      x: position.x - 200, // Center frame on cursor
+      y: position.y - 150, // Center frame on cursor
+      width: 450, // Increased width to better fit content
+      height: 350, // Increased height to better fit content
+      content,
+      type: (option.frameType === 'component' || option.frameType === 'plan') ? 'custom' : option.frameType
+    })
+    
+    onClose()
+  }, [position, addFrame, onClose])
+
+  // Handle click outside to close
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        onClose()
+      }
+    }
+
+    if (isVisible) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isVisible, onClose])
+
   return (
     <AnimatePresence>
       {isVisible && (
         <motion.div
+          ref={menuRef}
           className="fixed z-50"
-          style={{
-            left: x + 10, // Offset to the right of cursor
-            top: y - 10,  // Slight offset above cursor
-          }}
-          initial={{ opacity: 1 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ 
-            duration: 0.1,
-            ease: "easeOut"
-          }}
+          style={menuPosition}
+          initial={{ opacity: 0, scale: 0.95, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 10 }}
+          transition={{ duration: 0.15, ease: 'easeOut' }}
         >
-          <div 
-            className="context-menu bg-[#F2F2F2] bg-opacity-40 backdrop-blur-sm rounded-[10px] p-4 border border-gray-200 shadow-lg"
-            style={{ fontFamily: 'Inter, sans-serif' }}
-          >
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Add Frame</h3>
+          <div className="bg-white rounded-[10px] shadow-lg border border-gray-200 py-3 min-w-[280px]">
+            {/* Title */}
+            <div className="px-4 pb-3 border-b border-gray-100">
+              <h3 className="text-sm font-medium text-gray-700 tracking-tight">
+                Add Frame
+              </h3>
+            </div>
             
-            <div className="space-y-3">
-              {/* Start from image */}
-              <button
-                onClick={onCreateImageFrame}
-                className="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-white hover:bg-opacity-50 transition-colors text-left"
-              >
-                <div className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center">
-                  <ImageIcon className="w-4 h-4 text-gray-600" />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-700">Start from image</div>
-                  <div className="text-xs text-gray-500">Generate components using an image from reference</div>
-                </div>
-              </button>
-
-              {/* Start from text */}
-              <button
-                onClick={onCreateTextFrame}
-                className="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-white hover:bg-opacity-50 transition-colors text-left"
-              >
-                <div className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center">
-                  <TextIcon className="w-4 h-4 text-gray-600" />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-700">Start from text</div>
-                  <div className="text-xs text-gray-500">Generate and edit from text</div>
-                </div>
-              </button>
-
-              {/* Start from planning */}
-              <button
-                onClick={onCreateCustomFrame}
-                className="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-white hover:bg-opacity-50 transition-colors text-left"
-              >
-                <div className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center">
-                  <CubeIcon className="w-4 h-4 text-gray-600" />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-700">Start from planning</div>
-                  <div className="text-xs text-gray-500">Plan, iterate, and draft step-by-step</div>
-                </div>
-              </button>
+            {/* Options */}
+            <div className="py-1">
+              {MENU_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => handleOptionClick(option)}
+                  className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors duration-150 flex items-start space-x-3 group"
+                >
+                  {/* Icon */}
+                  <div className="flex-shrink-0 w-8 h-8 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center text-gray-600 group-hover:bg-gray-100 transition-colors">
+                    {option.icon}
+                  </div>
+                  
+                  {/* Text Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-700 tracking-tight group-hover:text-gray-900">
+                      {option.title}
+                    </div>
+                    <div className="text-xs text-gray-500 tracking-tight mt-0.5">
+                      {option.subtitle}
+                    </div>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         </motion.div>
       )}
     </AnimatePresence>
   )
-} 
+}
+
+export default ContextMenu 

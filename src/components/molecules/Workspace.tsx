@@ -6,6 +6,8 @@ import { useFrameStore } from '@/stores/frameStore'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import Frame from './Frame'
+import ContextMenu from './ContextMenu'
+import Placeholder from './Placeholder'
 import { 
   TextFrameContent, 
   ImageFrameContent, 
@@ -19,14 +21,31 @@ export default function Workspace() {
   const { frames, addFrame, clearSelection } = useFrameStore()
   const workspaceRef = useRef<HTMLDivElement>(null)
   
-  // Grid animation states
-  const [gridOpacity, setGridOpacity] = useState(0.1) // Default 10%
   const [isPanning, setIsPanning] = useState(false)
   const [isDraggingFrame, setIsDraggingFrame] = useState(false)
   
   // Pan boundary states
   const [boundaryFadeOpacity, setBoundaryFadeOpacity] = useState(0)
   const [boundaryDirection, setBoundaryDirection] = useState<'none' | 'left' | 'right' | 'top' | 'bottom'>('none')
+  
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    isVisible: boolean
+    position: { x: number; y: number }
+    screenPosition: { x: number; y: number }
+  }>({
+    isVisible: false,
+    position: { x: 0, y: 0 },
+    screenPosition: { x: 0, y: 0 }
+  })
+  
+  // Mouse hold detection
+  const mouseHoldTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const isMouseDownRef = useRef(false)
+  
+  // Touch long-press detection (mobile)
+  const touchHoldTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const isTouchActiveRef = useRef(false)
   
   // Pan boundaries configuration
   const PAN_BOUNDARIES = {
@@ -82,15 +101,13 @@ export default function Workspace() {
     setPan(constrainedX, constrainedY)
   }, [setPan])
   
-  // Monitor frame dragging state for grid opacity
+  // Monitor frame dragging state
   useEffect(() => {
     const anyFrameDragging = frames.some(frame => frame.isDragging)
     if (anyFrameDragging && !isDraggingFrame) {
       setIsDraggingFrame(true)
-      setGridOpacity(0.2) // 20% opacity when dragging frames
     } else if (!anyFrameDragging && isDraggingFrame) {
       setIsDraggingFrame(false)
-      setGridOpacity(0.1) // Back to 10% opacity
     }
   }, [frames, isDraggingFrame])
   
@@ -109,13 +126,11 @@ export default function Workspace() {
       // Use constrained pan
       constrainedPan(newPanX, newPanY)
       
-      // Reduce grid opacity during panning
+      // Set panning state
       setIsPanning(true)
-      setGridOpacity(0.05) // 5% opacity
       
       // Reset panning state after a short delay
       setTimeout(() => setIsPanning(false), 150)
-      setTimeout(() => setGridOpacity(0.1), 200)
       return
     }
     
@@ -148,27 +163,18 @@ export default function Workspace() {
       case 'ArrowUp':
         e.preventDefault()
         constrainedPan(panX, panY + panAmount)
-        // Reduce grid opacity during keyboard panning
-        setGridOpacity(0.05)
-        setTimeout(() => setGridOpacity(0.1), 200)
         break
       case 'ArrowDown':
         e.preventDefault()
         constrainedPan(panX, panY - panAmount)
-        setGridOpacity(0.05)
-        setTimeout(() => setGridOpacity(0.1), 200)
         break
       case 'ArrowLeft':
         e.preventDefault()
         constrainedPan(panX + panAmount, panY)
-        setGridOpacity(0.05)
-        setTimeout(() => setGridOpacity(0.1), 200)
         break
       case 'ArrowRight':
         e.preventDefault()
         constrainedPan(panX - panAmount, panY)
-        setGridOpacity(0.05)
-        setTimeout(() => setGridOpacity(0.1), 200)
         break
       case '=':
       case '+':
@@ -253,35 +259,114 @@ export default function Workspace() {
     })
   }, [addFrame])
   
+  // Mouse event handlers for context menu
+  const handleMouseDown = useCallback((e: MouseEvent) => {
+    // Only handle right mouse button or if not clicking on a frame
+    if (e.button === 2 || e.target === workspaceRef.current) {
+      isMouseDownRef.current = true
+      
+      // Start 500ms timer for context menu
+      mouseHoldTimerRef.current = setTimeout(() => {
+        if (isMouseDownRef.current) {
+          // Calculate workspace-relative position
+          const rect = workspaceRef.current?.getBoundingClientRect()
+          if (rect) {
+            const workspaceX = (e.clientX - rect.left - panX) / zoom
+            const workspaceY = (e.clientY - rect.top - panY) / zoom
+            
+            setContextMenu({
+              isVisible: true,
+              position: { x: workspaceX, y: workspaceY },
+              screenPosition: { x: e.clientX, y: e.clientY }
+            })
+          }
+        }
+      }, 500)
+    }
+  }, [panX, panY, zoom])
+  
+  const handleMouseUp = useCallback((e: MouseEvent) => {
+    isMouseDownRef.current = false
+    if (mouseHoldTimerRef.current) {
+      clearTimeout(mouseHoldTimerRef.current)
+      mouseHoldTimerRef.current = null
+    }
+  }, [])
+  
+  const handleContextMenu = useCallback((e: MouseEvent) => {
+    e.preventDefault() // Prevent default context menu
+  }, [])
+  
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ isVisible: false, position: { x: 0, y: 0 }, screenPosition: { x: 0, y: 0 } })
+  }, [])
+
+  // Touch handlers for long-press context menu on mobile
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    if (!workspaceRef.current) return
+    if (e.touches.length !== 1) return
+    isTouchActiveRef.current = true
+    const touch = e.touches[0]
+    const rect = workspaceRef.current.getBoundingClientRect()
+    const workspaceX = (touch.clientX - rect.left - panX) / zoom
+    const workspaceY = (touch.clientY - rect.top - panY) / zoom
+    
+    touchHoldTimerRef.current = setTimeout(() => {
+      if (isTouchActiveRef.current) {
+        setContextMenu({
+          isVisible: true,
+          position: { x: workspaceX, y: workspaceY },
+          screenPosition: { x: touch.clientX, y: touch.clientY }
+        })
+      }
+    }, 500)
+  }, [panX, panY, zoom])
+  
+  const handleTouchEnd = useCallback(() => {
+    isTouchActiveRef.current = false
+    if (touchHoldTimerRef.current) {
+      clearTimeout(touchHoldTimerRef.current)
+      touchHoldTimerRef.current = null
+    }
+  }, [])
+  
+  const handleTouchMove = useCallback(() => {
+    // Cancel long-press if the user moves finger (interpreted as pan)
+    if (isTouchActiveRef.current && touchHoldTimerRef.current) {
+      clearTimeout(touchHoldTimerRef.current)
+      touchHoldTimerRef.current = null
+    }
+  }, [])
+  
   // Event listeners
   useEffect(() => {
     const workspace = workspaceRef.current
     if (!workspace) return
     
     workspace.addEventListener('wheel', handleWheel, { passive: false })
+    workspace.addEventListener('mousedown', handleMouseDown)
+    workspace.addEventListener('mouseup', handleMouseUp)
+    workspace.addEventListener('contextmenu', handleContextMenu)
+    workspace.addEventListener('touchstart', handleTouchStart, { passive: true })
+    workspace.addEventListener('touchend', handleTouchEnd, { passive: true })
+    workspace.addEventListener('touchcancel', handleTouchEnd, { passive: true })
+    workspace.addEventListener('touchmove', handleTouchMove, { passive: true })
     document.addEventListener('keydown', handleKeyDown)
     
     return () => {
       workspace.removeEventListener('wheel', handleWheel)
+      workspace.removeEventListener('mousedown', handleMouseDown)
+      workspace.removeEventListener('mouseup', handleMouseUp)
+      workspace.removeEventListener('contextmenu', handleContextMenu)
+      workspace.removeEventListener('touchstart', handleTouchStart)
+      workspace.removeEventListener('touchend', handleTouchEnd)
+      workspace.removeEventListener('touchcancel', handleTouchEnd)
+      workspace.removeEventListener('touchmove', handleTouchMove)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [handleWheel, handleKeyDown])
+  }, [handleWheel, handleMouseDown, handleMouseUp, handleContextMenu, handleTouchStart, handleTouchEnd, handleTouchMove, handleKeyDown])
   
-  // Animated Grid Component
-  const AnimatedGrid = () => (
-    <motion.div
-      className="absolute inset-0 pointer-events-none"
-      style={{
-        backgroundImage: `
-          linear-gradient(rgba(0, 0, 0, ${gridOpacity}) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(0, 0, 0, ${gridOpacity}) 1px, transparent 1px)
-        `,
-        backgroundSize: '20px 20px',
-      }}
-      animate={{ opacity: gridOpacity }}
-      transition={{ duration: 0.2, ease: 'easeInOut' }}
-    />
-  )
+
   
   // Boundary Gradient Fade Component
   const BoundaryGradient = () => {
@@ -350,7 +435,7 @@ export default function Workspace() {
             Zoom: {Math.round(zoom * 100)}%
           </span>
           <div className="text-xs text-gray-400 mt-1">
-            Grid: {Math.round(gridOpacity * 100)}% {isDraggingFrame ? '(Dragging)' : isPanning ? '(Panning)' : ''}
+            {isDraggingFrame ? '(Dragging)' : isPanning ? '(Panning)' : ''}
           </div>
           <div className="text-xs text-gray-400 mt-1">
             Pan: ({Math.round(panX)}, {Math.round(panY)})
@@ -363,44 +448,7 @@ export default function Workspace() {
         </div>
       </div>
       
-      {/* Frame Creation Buttons - Minimal link style */}
-      <div className="fixed top-4 right-4 z-50 pointer-events-none">
-        <div className="bg-white px-3 py-2 rounded-lg shadow-sm border pointer-events-auto">
-          <div className="text-xs font-medium text-gray-700 mb-2">Create:</div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={createTextFrame}
-              className="text-xs text-blue-600 hover:text-blue-800 underline cursor-pointer"
-            >
-              Text
-            </button>
-            <button
-              onClick={createImageFrame}
-              className="text-xs text-green-600 hover:text-green-800 underline cursor-pointer"
-            >
-              Image
-            </button>
-            <button
-              onClick={createBrowserFrame}
-              className="text-xs text-purple-600 hover:text-purple-800 underline cursor-pointer"
-            >
-              Browser
-            </button>
-            <button
-              onClick={createCustomFrame}
-              className="text-xs text-orange-600 hover:text-orange-800 underline cursor-pointer"
-            >
-              Custom
-            </button>
-            <button
-              onClick={createHTMLFrame}
-              className="text-xs text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
-            >
-              HTML
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* Frame Creation Buttons removed per design */}
       
       {/* Instructions */}
       <div className="fixed bottom-4 left-4 z-50 pointer-events-none">
@@ -410,6 +458,10 @@ export default function Workspace() {
           <div>Arrow keys to pan</div>
           <div>+/- to zoom</div>
           <div>Space/0 to reset</div>
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <div className="font-medium text-gray-700">Context Menu:</div>
+            <div>Hold mouse for 500ms to create frames</div>
+          </div>
         </div>
       </div>
       
@@ -438,11 +490,8 @@ export default function Workspace() {
           minWidth: '2000px',
           minHeight: '2000px',
         }}
-      >
-        {/* Animated Grid Background */}
-        <AnimatedGrid />
-        
-        {/* Boundary Gradient Fade */}
+              >
+          {/* Boundary Gradient Fade */}
         <BoundaryGradient />
         
         {/* Frames */}
@@ -450,6 +499,23 @@ export default function Workspace() {
           <Frame key={frame.id} frame={frame} />
         ))}
       </div>
+
+      {/* Screen-centered placeholder overlay (not transformed with workspace) */}
+      {frames.length === 0 && (
+        <div className="fixed inset-0 flex items-center justify-center z-40 pointer-events-none select-none">
+          <div className="pointer-events-auto">
+            <Placeholder />
+          </div>
+        </div>
+      )}
+      
+      {/* Context Menu */}
+      <ContextMenu
+        isVisible={contextMenu.isVisible}
+        position={contextMenu.position}
+        screenPosition={contextMenu.screenPosition}
+        onClose={closeContextMenu}
+      />
     </div>
   )
 } 

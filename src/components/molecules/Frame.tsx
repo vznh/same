@@ -1,7 +1,7 @@
 // components/molecules/Frame
 'use client'
 
-import { useRef, useCallback, useState } from 'react'
+import { useRef, useCallback } from 'react'
 import { useFrameStore, Frame as FrameType } from '@/stores/frameStore'
 
 interface FrameProps {
@@ -10,10 +10,8 @@ interface FrameProps {
 }
 
 export default function Frame({ frame, children }: FrameProps) {
-  const { updateFrame, selectFrame, deleteFrame, bringToFront } = useFrameStore()
+  const { updateFrame, selectFrame, bringToFront, deleteFrame } = useFrameStore()
   const frameRef = useRef<HTMLDivElement>(null)
-  const [isEditingTitle, setIsEditingTitle] = useState(false)
-  const [titleValue, setTitleValue] = useState(frame.title)
   
   // Handle frame selection
   const handleFrameClick = useCallback((e: React.MouseEvent) => {
@@ -22,12 +20,12 @@ export default function Frame({ frame, children }: FrameProps) {
     bringToFront(frame.id)
   }, [frame.id, selectFrame, bringToFront])
   
-  // Handle dragging
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Handle dragging
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement
     
     // Handle resizing
-    if (target.closest('.resize-handle')) {
+      if (target.closest('.resize-handle')) {
       e.stopPropagation()
       selectFrame(frame.id)
       bringToFront(frame.id)
@@ -62,11 +60,14 @@ export default function Frame({ frame, children }: FrameProps) {
       return
     }
     
-    // Handle dragging
-    if (e.target === frameRef.current || target.closest('.frame-titlebar')) {
+    // Handle dragging (clicking on the frame or non-interactive descendants)
+    const isInteractive = !!target.closest('input, textarea, button, [contenteditable="true"]')
+    if (!isInteractive && (e.target === frameRef.current || (frameRef.current && frameRef.current.contains(target)))) {
       e.stopPropagation()
       selectFrame(frame.id)
       bringToFront(frame.id)
+      // Ensure the frame receives keyboard focus for Backspace/Delete handling
+      frameRef.current?.focus()
       
       const startX = e.clientX - frame.x
       const startY = e.clientY - frame.y
@@ -90,41 +91,36 @@ export default function Frame({ frame, children }: FrameProps) {
     }
   }, [frame.id, frame.x, frame.y, frame.width, frame.height, selectFrame, bringToFront, updateFrame])
   
-  // Handle title editing
-  const handleTitleDoubleClick = useCallback(() => {
-    setIsEditingTitle(true)
-  }, [])
-  
-  const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitleValue(e.target.value)
-  }, [])
-  
-  const handleTitleBlur = useCallback(() => {
-    setIsEditingTitle(false)
-    if (titleValue.trim() !== frame.title) {
-      updateFrame(frame.id, { title: titleValue.trim() || 'Untitled' })
+  // Derive floating label from frame type
+  const getFloatingLabel = (): string => {
+    switch (frame.type) {
+      case 'text':
+        return 'Text'
+      case 'image':
+        return 'Image'
+      case 'browser':
+        return 'Browser'
+      case 'custom':
+      default:
+        return 'Component'
     }
-  }, [titleValue, frame.title, frame.id, updateFrame])
+  }
   
-  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleTitleBlur()
-    } else if (e.key === 'Escape') {
-      setTitleValue(frame.title)
-      setIsEditingTitle(false)
+  // Keyboard handling for delete when frame is focused
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      // Only delete if this frame has focus
+      if (document.activeElement === frameRef.current) {
+        e.preventDefault()
+        deleteFrame(frame.id)
+      }
     }
-  }, [handleTitleBlur, frame.title])
-  
-  // Handle delete
-  const handleDelete = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    deleteFrame(frame.id)
-  }, [frame.id, deleteFrame])
+  }, [deleteFrame, frame.id])
   
   return (
     <div
       ref={frameRef}
-      className={`absolute bg-white border-2 rounded-lg shadow-lg cursor-move ${
+      className={`absolute bg-white border-2 rounded-lg shadow-lg cursor-move tracking-tight ${
         frame.isSelected 
           ? 'border-blue-500 ring-2 ring-blue-200' 
           : 'border-gray-300 hover:border-gray-400'
@@ -138,50 +134,22 @@ export default function Frame({ frame, children }: FrameProps) {
       }}
       onClick={handleFrameClick}
       onMouseDown={handleMouseDown}
+      onKeyDown={handleKeyDown}
+      data-frame
+      tabIndex={0}
     >
-      {/* Title Bar */}
-      <div className="frame-titlebar flex items-center justify-between bg-gray-100 px-3 py-2 rounded-t-lg border-b border-gray-300">
-        <div className="flex-1 min-w-0">
-          {isEditingTitle ? (
-            <input
-              type="text"
-              value={titleValue}
-              onChange={handleTitleChange}
-              onBlur={handleTitleBlur}
-              onKeyDown={handleTitleKeyDown}
-              className="w-full bg-transparent border-none outline-none text-sm font-medium text-gray-700"
-              autoFocus
-            />
-          ) : (
-            <div
-              className="text-sm font-medium text-gray-700 truncate cursor-text"
-              onDoubleClick={handleTitleDoubleClick}
-              title="Double-click to edit title"
-            >
-              {frame.title}
-            </div>
-          )}
-        </div>
-        
-        {/* Frame Controls */}
-        <div className="flex items-center space-x-1">
-          <button
-            onClick={handleDelete}
-            className="w-4 h-4 flex items-center justify-center text-gray-500 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-            title="Delete frame"
-          >
-            ×
-          </button>
-        </div>
+      {/* Floating label outside top-left of frame */}
+      <div className="absolute -top-6 left-0 text-sm font-medium text-gray-500 pointer-events-none">
+        {getFloatingLabel()}
       </div>
       
       {/* Frame Content */}
-      <div className="flex-1 p-4 overflow-hidden">
+      <div className="w-full h-full p-4 overflow-visible">
         {children || frame.content}
       </div>
       
       {/* Resize Handles */}
-      <div className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
+      <div className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize resize-handle">
         <div className="w-full h-full bg-blue-500 opacity-0 hover:opacity-100 transition-opacity rounded-bl-lg" />
       </div>
     </div>
