@@ -1,11 +1,12 @@
 // components/Placeholder – render when no frames exist
-import { MagicWandIcon, ImageIcon, CubeIcon, LayersIcon } from '@radix-ui/react-icons'
+import { MagicWandIcon, ImageIcon, CubeIcon, LayersIcon, ChatBubbleIcon } from '@radix-ui/react-icons'
 
 type PlaceholderProps = {
   onCreateTool?: () => void
   onBuildWebsite?: () => void
   onStartTemplate?: () => void
-  onViewCommunity?: () => void
+  onViewCommunity?: () => void 
+  onChatWithAI?: () => void
 }
 
 const Placeholder = ({
@@ -13,6 +14,7 @@ const Placeholder = ({
   onBuildWebsite,
   onStartTemplate,
   onViewCommunity,
+  onChatWithAI
 }: PlaceholderProps) => {
   const Btn = ({
     icon,
@@ -37,6 +39,7 @@ const Placeholder = ({
       <div className="flex flex-wrap items-center justify-center gap-4">
         <Btn icon={<MagicWandIcon className="w-4 h-4" />} label="Create a tool" onClick={onCreateTool} />
         <Btn icon={<ImageIcon className="w-4 h-4" />} label="Build a website" onClick={onBuildWebsite} />
+        <Btn icon={<ChatBubbleIcon className="w-4 h-4" />} label="Generate a plan" onClick={onChatWithAI} />
         <Btn icon={<CubeIcon className="w-4 h-4" />} label="Start from a template" onClick={onStartTemplate} />
         <Btn icon={<LayersIcon className="w-4 h-4" />} label="View community work" onClick={onViewCommunity} />
       </div>

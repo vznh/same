@@ -12,6 +12,7 @@ interface FrameProps {
 export default function Frame({ frame, children }: FrameProps) {
   const { updateFrame, selectFrame, bringToFront, deleteFrame } = useFrameStore()
   const frameRef = useRef<HTMLDivElement>(null)
+  const dragPosRef = useRef<{ x: number; y: number } | null>(null)
   
   // Handle frame selection
   const handleFrameClick = useCallback((e: React.MouseEvent) => {
@@ -68,20 +69,40 @@ export default function Frame({ frame, children }: FrameProps) {
       bringToFront(frame.id)
       // Ensure the frame receives keyboard focus for Backspace/Delete handling
       frameRef.current?.focus()
+      // Enable pointer lock for drag so cursor doesn't travel
+      if (frameRef.current && frameRef.current.requestPointerLock) {
+        try { frameRef.current.requestPointerLock() } catch {}
+      }
+      dragPosRef.current = { x: frame.x, y: frame.y }
       
       const startX = e.clientX - frame.x
       const startY = e.clientY - frame.y
       
       const handleMouseMove = (e: MouseEvent) => {
-        updateFrame(frame.id, {
-          x: e.clientX - startX,
-          y: e.clientY - startY,
-          isDragging: true
-        })
+        if (document.pointerLockElement) {
+          if (dragPosRef.current) {
+            dragPosRef.current.x += e.movementX
+            dragPosRef.current.y += e.movementY
+            updateFrame(frame.id, {
+              x: dragPosRef.current.x,
+              y: dragPosRef.current.y,
+              isDragging: true
+            })
+          }
+        } else {
+          updateFrame(frame.id, {
+            x: e.clientX - startX,
+            y: e.clientY - startY,
+            isDragging: true
+          })
+        }
       }
       
       const handleMouseUp = () => {
         updateFrame(frame.id, { isDragging: false })
+        if (document.pointerLockElement) {
+          try { document.exitPointerLock() } catch {}
+        }
         document.removeEventListener('mousemove', handleMouseMove)
         document.removeEventListener('mouseup', handleMouseUp)
       }
@@ -102,7 +123,7 @@ export default function Frame({ frame, children }: FrameProps) {
         return 'Browser'
       case 'custom':
       default:
-        return 'Component'
+        return 'Planning'
     }
   }
   

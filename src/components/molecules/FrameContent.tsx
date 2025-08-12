@@ -22,7 +22,7 @@ export function TextFrameContent() {
   return (
     <div className="w-full h-full relative tracking-tight">
       {/* Main Content Container */}
-      <div className="w-full h-full p-4 bg-gray-50/0 rounded-[10px] tracking-tight">
+      <div className="w-full h-full p-4 rounded-[10px] tracking-tight">
         {/* Immutable Title with divider */}
         <div className="mb-3">
         <div className="text-sm text-gray-900/40 mb-2 select-none">
@@ -106,7 +106,7 @@ export function ImageFrameContent() {
   }
 
   return (
-      <div className="w-full h-full p-4 bg-gray-50/40 rounded-[10px] tracking-tight">
+      <div className="w-full h-full p-4 rounded-[10px] tracking-tight">
       {/* Title (40% opacity) */}
       <div className="text-sm text-gray-900/40 mb-2 select-none">
         Generate components, websites, or services from an image reference
@@ -115,7 +115,7 @@ export function ImageFrameContent() {
 
       {/* Drop zone */}
       <div
-        className={`relative rounded-[10px] bg-white/50 p-6`}
+        className={`relative rounded-[10px] p-6`}
       >
         <div
           onDragOver={handleDragOver}
@@ -176,25 +176,6 @@ export function ImageFrameContent() {
   )
 }
 
-// Browser Frame Content
-export function BrowserFrameContent() {
-  return (
-    <div className="w-full h-full flex flex-col">
-      <div className="flex items-center space-x-2 mb-2">
-        <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-        <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-      </div>
-      <div className="flex-1 bg-gray-100 rounded flex items-center justify-center">
-        <div className="text-center text-gray-500">
-          <div className="text-2xl mb-2">🌐</div>
-          <div className="text-sm">Browser Frame</div>
-          <div className="text-xs mt-1">Enter URL to browse</div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // Custom Frame Content - Example with buttons and interactions
 export function CustomFrameContent() {
@@ -277,7 +258,7 @@ export function PlanFrameContent() {
   }
 
   return (
-    <div className="w-full h-full p-4 bg-gray-50/40 rounded-[10px] tracking-tight flex flex-col">
+    <div className="w-full h-full p-4 rounded-[10px] tracking-tight flex flex-col">
       {/* Title placeholder (40% opacity) */}
       <div className="text-gray-900/40 mb-2 select-none">
         Plan out your approach with follow-up questions to match your preference

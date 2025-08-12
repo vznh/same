@@ -11,7 +11,6 @@ import Placeholder from './Placeholder'
 import { 
   TextFrameContent, 
   ImageFrameContent, 
-  BrowserFrameContent, 
   CustomFrameContent,
   HTMLFrameContent 
 } from './FrameContent'
@@ -134,9 +133,15 @@ export default function Workspace() {
       return
     }
     
-    // This is a zoom gesture - zoom towards cursor position
-    const delta = e.deltaY > 0 ? 0.95 : 1.05
-    const newZoom = Math.max(0.1, Math.min(5, zoom * delta))
+    // This is a zoom gesture - zoom towards cursor position, but ignore when hovering a scrollable area
+    const target = e.target as HTMLElement
+    const isOverScrollable = !!target.closest('[data-scrollable]')
+    if (isOverScrollable) {
+      return // let the inner area handle the wheel
+    }
+
+    const delta = e.deltaY > 0 ? 0.98 : 1.02 // lower sensitivity
+    const newZoom = Math.max(0.1, Math.min(3, zoom * delta))
     
     // Zoom towards mouse cursor position
     if (workspaceRef.current) {
@@ -225,13 +230,13 @@ export default function Workspace() {
   
   const createBrowserFrame = useCallback(() => {
     addFrame({
-      title: 'Browser Frame',
+      title: 'HTML Frame',
       x: 50,
       y: 300,
       width: 400,
       height: 300,
-      content: <BrowserFrameContent />,
-      type: 'browser'
+      content: <HTMLFrameContent />,
+      type: 'custom'
     })
   }, [addFrame])
   
