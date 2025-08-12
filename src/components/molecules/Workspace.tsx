@@ -8,9 +8,9 @@ import { motion } from 'framer-motion'
 import { AspectRatioIcon } from '@radix-ui/react-icons'
 import Frame from './Frame'
 import ConnectionsLayer from './ConnectionsLayer'
-import { useConnectionStore } from '@/stores/connectionStore'
 import ContextMenu from './ContextMenu'
 import Placeholder from './Placeholder'
+import { useConnectionStore } from '@/stores/connectionStore'
 import AgentModal from './AgentModal'
 import FloatingToolbar from './FloatingToolbar'
 import { FrameProvider } from '@/contexts/FrameContext'
@@ -545,34 +545,11 @@ export default function Workspace() {
   
   return (
     <div className="w-full h-full relative overflow-auto bg-gray-100">
-      {/* Fixed UI Controls - Outside transformed workspace */}
+      {/* Fixed UI Controls - simplified (show percent and pan) */}
       <div className="fixed top-4 left-4 z-50 pointer-events-none">
         <div className="bg-white px-3 py-2 rounded-lg shadow-sm border pointer-events-auto">
-          <span className="text-sm font-medium text-gray-700">
-            Mode: {mode}
-          </span>
-          <span className="ml-2 text-xs text-gray-500">
-            Zoom: {Math.round(zoom * 100)}%
-          </span>
-          <div className="text-xs text-gray-400 mt-1">
-            {isDraggingFrame ? '(Dragging)' : isPanning ? '(Panning)' : ''}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
-            Pan: ({Math.round(panX)}, {Math.round(panY)})
-          </div>
-          {boundaryDirection !== 'none' && (
-            <div className="text-xs text-orange-500 mt-1">
-              Boundary: {boundaryDirection} ({Math.round(boundaryFadeOpacity * 100)}%)
-            </div>
-          )}
-          <div className="mt-2">
-            <button
-              onClick={() => setIsAgentOpen(true)}
-              className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 border"
-            >
-              Open Agent
-            </button>
-          </div>
+          <span className="ml-0 text-xs text-gray-700">{Math.round(zoom * 100)}%</span>
+          <span className="ml-2 text-[11px] text-gray-500">Pan: ({Math.round(panX)}, {Math.round(panY)})</span>
         </div>
       </div>
       
@@ -596,7 +573,7 @@ export default function Workspace() {
           {/* Boundary Gradient Fade */}
         <BoundaryGradient />
         {/* Connections behind frames (lower z-index within this stacking context) */}
-        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
+        <div className="absolute inset-0" style={{ zIndex: 0 }}>
           <ConnectionsLayer frames={frames} containerRef={workspaceRef} zoom={zoom} panX={panX} panY={panY} />
         </div>
         
@@ -612,7 +589,50 @@ export default function Workspace() {
       {frames.length === 0 && (
         <div className="fixed inset-0 flex items-center justify-center z-40 pointer-events-none select-none">
           <div className="pointer-events-auto">
-            <Placeholder />
+            <Placeholder
+              onCreateTool={() => {
+                const store = useFrameStore.getState()
+                const existing = store.frames.filter(f => f.title?.startsWith('Generation ')).length
+                store.addFrame({
+                  title: `Generation ${existing + 1}`,
+                  x: 200, y: 150, width: 450, height: 350,
+                  content: <CustomFrameContent />, type: 'custom'
+                })
+              }}
+              onBuildWebsite={() => {
+                const store = useFrameStore.getState()
+                const conn = useConnectionStore.getState()
+                // Three text in left column
+                const a = store.addFrame({ title: 'Text 1', x: 150, y: 120, width: 320, height: 160, content: <TextFrameContent />, type: 'text' })
+                const b = store.addFrame({ title: 'Text 2', x: 150, y: 300, width: 320, height: 160, content: <TextFrameContent />, type: 'text' })
+                const c = store.addFrame({ title: 'Text 3', x: 150, y: 480, width: 320, height: 160, content: <TextFrameContent />, type: 'text' })
+                // One image in right column
+                const d = store.addFrame({ title: 'Image', x: 520, y: 250, width: 380, height: 300, content: <ImageFrameContent />, type: 'image' })
+                // Connect them all
+                conn.addConnection(a,b); conn.addConnection(b,c); conn.addConnection(c,d)
+              }}
+              onChatWithAI={() => {
+                const store = useFrameStore.getState()
+                const conn = useConnectionStore.getState()
+                const genCount = store.frames.filter(f => f.title?.startsWith('Generation ')).length
+                const plan = store.addFrame({ title: `Generation ${genCount + 1}`, x: 200, y: 150, width: 450, height: 350, content: <CustomFrameContent />, type: 'custom' })
+                const t1 = store.addFrame({ title: 'Note A', x: 700, y: 150, width: 320, height: 160, content: <TextFrameContent />, type: 'text' })
+                const t2 = store.addFrame({ title: 'Note B', x: 700, y: 340, width: 320, height: 160, content: <TextFrameContent />, type: 'text' })
+                conn.addConnection(plan, t1); conn.addConnection(plan, t2)
+              }}
+              onStartTemplate={() => {
+                const store = useFrameStore.getState()
+                const conn = useConnectionStore.getState()
+                // All blocks (combo of website + plan)
+                const genCount = store.frames.filter(f => f.title?.startsWith('Generation ')).length
+                const p = store.addFrame({ title: `Generation ${genCount + 1}`, x: 200, y: 80, width: 450, height: 350, content: <CustomFrameContent />, type: 'custom' })
+                const t1 = store.addFrame({ title: 'Text 1', x: 150, y: 470, width: 320, height: 160, content: <TextFrameContent />, type: 'text' })
+                const t2 = store.addFrame({ title: 'Text 2', x: 150, y: 650, width: 320, height: 160, content: <TextFrameContent />, type: 'text' })
+                const t3 = store.addFrame({ title: 'Text 3', x: 150, y: 830, width: 320, height: 160, content: <TextFrameContent />, type: 'text' })
+                const img = store.addFrame({ title: 'Image', x: 520, y: 540, width: 380, height: 300, content: <ImageFrameContent />, type: 'image' })
+                conn.addConnection(p,t1); conn.addConnection(t1,t2); conn.addConnection(t2,t3); conn.addConnection(t3,img)
+              }}
+            />
           </div>
         </div>
       )}

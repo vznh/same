@@ -1,3 +1,4 @@
+"use client"
 // components/Placeholder – render when no frames exist
 import { MagicWandIcon, ImageIcon, CubeIcon, LayersIcon, ChatBubbleIcon } from '@radix-ui/react-icons'
 
@@ -41,7 +42,9 @@ const Placeholder = ({
         <Btn icon={<ImageIcon className="w-4 h-4" />} label="Build a website" onClick={onBuildWebsite} />
         <Btn icon={<ChatBubbleIcon className="w-4 h-4" />} label="Generate a plan" onClick={onChatWithAI} />
         <Btn icon={<CubeIcon className="w-4 h-4" />} label="Start from a template" onClick={onStartTemplate} />
-        <Btn icon={<LayersIcon className="w-4 h-4" />} label="View community work" onClick={onViewCommunity} />
+        <div className="opacity-10">
+          <Btn icon={<LayersIcon className="w-4 h-4" />} label="View community work" />
+        </div>
       </div>
     </div>
   )

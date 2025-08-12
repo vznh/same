@@ -14,7 +14,7 @@ interface OClientI {
   // tester
   ping(): Promise<boolean>;
   // parse a natural language command into a structured FrameAction
-  parseFrameCommand(text: string, frames: { id: string; title: string }[]): Promise<{ ok: boolean; action?: FrameAction; error?: string }>
+  parseFrameCommand(text: string, frames: { id: string; title: string; type?: string; x?: number; y?: number }[]): Promise<{ ok: boolean; action?: FrameAction; error?: string }>
   // simple chat helper: returns assistant reply text
   chat(messages: { role: 'system' | 'user' | 'assistant'; content: string }[]): Promise<{ ok: boolean; reply?: string }>
 }
@@ -52,10 +52,10 @@ class OClient implements OClientI {
     }
   }
   
-  async parseFrameCommand(text: string, frames: { id: string; title: string }[]): Promise<{ ok: boolean; action?: FrameAction; error?: string }> {
+  async parseFrameCommand(text: string, frames: { id: string; title: string; type?: string; x?: number; y?: number }[]): Promise<{ ok: boolean; action?: FrameAction; error?: string }> {
     if (!this.key) return { ok: false, error: 'Missing API key' }
     try {
-      const systemPrompt = `You are an assistant that converts a single user instruction into one JSON action that matches this TypeScript union. Output ONLY raw JSON, no prose.
+      const systemPrompt = `You are an assistant that converts EXACTLY ONE user instruction into EXACTLY ONE JSON action from the union below. Your output MUST be PURE JSON with double-quoted keys/strings and no trailing commas. Do NOT explain. If the request is ambiguous, return {"type":"clearSelection"}.
 
 type FrameType = 'text' | 'image' | 'browser' | 'custom'
 type FrameAction =
@@ -68,21 +68,37 @@ type FrameAction =
   | { type: 'select'; id: string; multiSelect?: boolean }
   | { type: 'clearSelection' }
   | { type: 'delete'; id: string }
+  | { type: 'selectMany'; ids: string[] }
+  | { type: 'deleteMany'; ids: string[] }
+  | { type: 'moveMany'; moves: ({ id: string; x?: number; y?: number; placement?: Placement })[] }
+  | { type: 'connect'; pairs: { a: string; b: string }[] }
+  | { type: 'createMany'; payloads: { title: string; x?: number; y?: number; width: number; height: number; frameType: FrameType; placement?: Placement }[] }
+  | { type: 'createAndConnect'; payloads: { title: string; x?: number; y?: number; width: number; height: number; frameType: FrameType; placement?: Placement }[]; pairs: { aIndex: number; bIndex: number }[] }
+  | { type: 'updateContent'; id: string; content: unknown }
+  | { type: 'updateData'; id: string; data: Record<string, unknown> }
 
 type Placement =
   | { type: 'viewportCenter' }
   | { type: 'relativeToFrame'; ref: { by: 'id' | 'title'; value: string }; align: 'rightOf' | 'leftOf' | 'above' | 'below' | 'center'; gap?: number }
 
-Rules:
-- Only one action per response.
-- Numbers must be finite.
-- If size or position is missing for create, choose reasonable defaults (width: 450, height: 350). If x/y omitted, use placement with {type:'viewportCenter'}.
-- If type is ambiguous, default frameType to 'text'.
-- Accept phrases like "center of my screen" as {"placement":{"type":"viewportCenter"}}.
-- Accept phrases like "to the right of <title>" as {"placement":{"type":"relativeToFrame","ref":{"by":"title","value":"<title>"},"align":"rightOf"}}.
-- A list of existing frames will be provided as JSON. When the user refers to a frame by title, you MUST resolve the title to an id from that list and output the id. If multiple frames have the same title or none match, do not guess.
-- If you cannot confidently resolve a referenced frame to a single id, output the JSON: {"type":"clearSelection"} (this will be treated as a no-op) and nothing else.
-- Never include comments or extra keys.`
+Rules (MUST FOLLOW):
+- Output exactly ONE action object. No arrays. No extra keys. JSON only.
+- All numbers must be finite.
+- For create: if x/y omitted, use placement {"type":"viewportCenter"}; default width:450, height:350; default frameType:'text' if ambiguous.
+- For move/moveMany: either provide both x and y or provide placement; not both.
+- For selectMany/deleteMany/connect: all ids MUST exist in provided Frames list (see below), resolved by exact title match when titles are referenced. If uncertain, return {"type":"clearSelection"}.
+- For connect: pairs must not include identical ids.
+ - For connect: pairs must not include identical ids.
+ - For updateContent/updateData: target id MUST exist; for updateContent prefer plain text; for updateData provide a small object of key-values.
+- If any required info is missing or ambiguous, return {"type":"clearSelection"}.
+
+Frames inventory (id, title, optional type, x, y) will be provided as JSON; you MUST resolve referenced titles to ids and use ids in actions.
+
+Special interpretation rules (strict):
+- "plan" or "planning" frame type maps to {"frameType":"custom"}.
+- Requests like "create N frames: plan, text, image" MUST be expressed as {"type":"createMany", "payloads":[...]}, filling reasonable defaults (width 450, height 350, placement viewportCenter unless x/y provided). Title may be "Generation <n>" or the provided label.
+- Requests like "connect all <TYPE> frames together" MUST be expressed as {"type":"connect","pairs":[...]}. Determine candidate ids by filtering Frames inventory where type==<TYPE> (case-insensitive match for 'text','image','browser','custom'). If x positions are provided, connect as a chain left→right (sort by x then make pairs [i,i+1]). If no positions, connect as a chain by the given order in the inventory. Never create duplicate/self pairs.
+`
 
       const response = await axios.post(
         "https://api.openai.com/v1/chat/completions",

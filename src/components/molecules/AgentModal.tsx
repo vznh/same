@@ -33,7 +33,7 @@ export default function AgentModal({ isOpen, onClose }: { isOpen: boolean; onClo
     setDraft('')
     setLoading(true)
     try {
-      const frames = useFrameStore.getState().frames.map(f => ({ id: f.id, title: f.title }))
+      const frames = useFrameStore.getState().frames.map(f => ({ id: f.id, title: f.title, type: f.type, x: f.x, y: f.y }))
       const res = await axios.post('/api/ai/frames/parse', { text, frames })
       const data = res.data as { ok: boolean; action?: unknown; error?: string }
       if (!data.ok || !data.action) {
@@ -131,6 +131,10 @@ function describeAction(action: FrameAction): string {
     case 'select': return `Selected ${action.id}${action.multiSelect ? ' (multi)' : ''}.`
     case 'clearSelection': return `Cleared selection.`
     case 'delete': return `Deleted ${action.id}.`
+    case 'selectMany': return `Selected ${action.ids.length} frames.`
+    case 'deleteMany': return `Deleted ${action.ids.length} frames.`
+    case 'moveMany': return `Moved ${action.moves.length} frames.`
+    case 'connect': return `Connected ${action.pairs.length} pair(s).`
     default: return 'Done.'
   }
 }

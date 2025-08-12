@@ -92,15 +92,17 @@ export const Connector: React.FC<ConnectorProps> = ({ id, aFrameId, bFrameId, fr
 
   const onDragEndpoint = (endpoint: EndpointKey) => (e: React.MouseEvent) => {
     e.stopPropagation()
+    // Select the connection when starting a drag from its endpoint
+    selectConnection(id)
     startDragEndpoint(id, endpoint)
   }
 
   return (
     <g data-connection data-connection-id={id}>
-      <path d={d} stroke={stroke} strokeWidth={strokeWidth} fill="none" onMouseDown={onSelect} />
+      <path d={d} stroke={stroke} strokeWidth={strokeWidth} fill="none" onMouseDown={onSelect} style={{ cursor: 'pointer' }} />
       {/* Endpoint handles */}
-      <circle cx={aAnchor.x} cy={aAnchor.y} r={6} fill="#fff" stroke={stroke} strokeWidth={2} onMouseDown={onDragEndpoint('a')} />
-      <circle cx={bAnchor.x} cy={bAnchor.y} r={6} fill="#fff" stroke={stroke} strokeWidth={2} onMouseDown={onDragEndpoint('b')} />
+      <circle cx={aAnchor.x} cy={aAnchor.y} r={6} fill="#fff" stroke={stroke} strokeWidth={2} onMouseDown={onDragEndpoint('a')} style={{ cursor: 'grab' }} />
+      <circle cx={bAnchor.x} cy={bAnchor.y} r={6} fill="#fff" stroke={stroke} strokeWidth={2} onMouseDown={onDragEndpoint('b')} style={{ cursor: 'grab' }} />
       {/* Emphasis rings when selected */}
       {isSelected && (
         <>

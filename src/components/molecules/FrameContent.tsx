@@ -10,7 +10,7 @@ import RenderNode from './RenderNode'
 import { validateUINode, UINode } from '@/models/uiNode'
 import { useFrameStore } from '@/stores/frameStore'
 import { useConnectionStore } from '@/stores/connectionStore'
-import Image from 'next/image'
+// note: avoid next/image for user-provided data URLs to sidestep required width/height
 
 // Text Frame Content
 export function TextFrameContent() {
@@ -207,7 +207,7 @@ export function ImageFrameContent() {
           }`}
         >
           {previewSrc ? (
-            <Image src={previewSrc} alt="Uploaded" className="max-h-[234px] max-w-full rounded" />
+            <img src={previewSrc} alt="Uploaded" className="max-h-[234px] max-w-full rounded" />
           ) : (
             <div className="flex items-center space-x-3">
               <svg

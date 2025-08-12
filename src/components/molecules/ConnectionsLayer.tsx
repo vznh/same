@@ -39,12 +39,20 @@ export const ConnectionsLayer: React.FC<ConnectionsLayerProps> = ({ frames, cont
       x: (pendingCursor.x - containerRect.left - panX) / zoom,
       y: (pendingCursor.y - containerRect.top - panY) / zoom,
     }
-    const p1 = pendingAnchor
+    // Source anchor in workspace coordinates
+    const sourcePoint = pendingAnchor
       ? { x: (pendingAnchor.x - containerRect.left - panX) / zoom, y: (pendingAnchor.y - containerRect.top - panY) / zoom }
       : intersectFromCenter(rect, cursor)
-    const d = pathForCurve(p1, cursor)
+
+    // If cursor is over a target frame, snap endpoint to its edge intersection
+    const target = findFrameAtPoint(cursor, frames)
+    const snappedEndpoint = target && target.id !== pendingFromFrameId
+      ? intersectFromCenter(framesById[target.id], sourcePoint)
+      : cursor
+
+    const d = pathForCurve(sourcePoint, snappedEndpoint)
     return d
-  }, [pendingFromFrameId, pendingCursor, pendingAnchor, framesById, containerRef, zoom, panX, panY])
+  }, [pendingFromFrameId, pendingCursor, pendingAnchor, framesById, containerRef, zoom, panX, panY, frames])
 
   // Dragging endpoint path (endpoint follows cursor)
   const draggingPath = React.useMemo(() => {
@@ -134,6 +142,16 @@ function pathForCurve(p1: { x: number; y: number }, p2: { x: number; y: number }
   const c1 = { x: p1.x + dx, y: p1.y + dy }
   const c2 = { x: p2.x - dx, y: p2.y - dy }
   return `M ${p1.x},${p1.y} C ${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`
+}
+
+function findFrameAtPoint(p: { x: number; y: number }, frames: { id: string; x: number; y: number; width: number; height: number }[]) {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const f = frames[i]
+    if (p.x >= f.x && p.x <= f.x + f.width && p.y >= f.y && p.y <= f.y + f.height) {
+      return f
+    }
+  }
+  return null
 }
 
 export default ConnectionsLayer

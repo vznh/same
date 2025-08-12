@@ -485,6 +485,27 @@ export default function Frame({ frame, children }: FrameProps) {
       clearDragEndpoint()
     }
   }, [reattachEndpoint, frame.id, clearDragEndpoint])
+
+  // Fallback detection via whole frame mousemove (in case side detectors miss)
+  const onFrameMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!frameRef.current) return
+    const rect = frameRef.current.getBoundingClientRect()
+    const margin = 64
+    const withinVBand = e.clientY >= rect.top + rect.height * 0.2 && e.clientY <= rect.top + rect.height * 0.8
+    const nearLeft = Math.abs(e.clientX - rect.left) <= margin
+    const nearRight = Math.abs(e.clientX - rect.right) <= margin
+    if (withinVBand && (nearLeft || nearRight)) {
+      setShowPlus(true)
+      const top = Math.min(Math.max(e.clientY - rect.top, rect.height * 0.2), rect.height * 0.8)
+      const left = nearLeft ? -12 : rect.width + 12
+      setPlusPos({ left, top })
+    }
+  }, [])
+
+  const onFrameMouseLeave = useCallback(() => {
+    setShowPlus(false)
+    setPlusPos(null)
+  }, [])
   
   return (
     <div
@@ -508,6 +529,8 @@ export default function Frame({ frame, children }: FrameProps) {
         if (target.closest('[data-connection-ui]')) return
         handleMouseDown(e)
       }}
+      onMouseMove={onFrameMouseMove}
+      onMouseLeave={onFrameMouseLeave}
       onMouseUp={(e)=>{ onFrameMouseUp(e); onFrameMouseUpReattach(); handleContainerMouseUp(e) }}
       onDoubleClick={handleDoubleClick}
       onTouchStart={handleTouchStart}

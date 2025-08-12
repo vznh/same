@@ -19,6 +19,7 @@ export interface Frame {
   isResizing: boolean
   isDragging: boolean
   borderColor?: string
+  data?: Record<string, unknown>
 }
 
 interface FrameState {
@@ -27,8 +28,9 @@ interface FrameState {
   nextZIndex: number
   
   // Actions
-  addFrame: (frame: Omit<Frame, 'id' | 'zIndex' | 'isSelected' | 'isResizing' | 'isDragging'>) => void
+  addFrame: (frame: Omit<Frame, 'id' | 'zIndex' | 'isSelected' | 'isResizing' | 'isDragging'>) => string
   updateFrame: (id: string, updates: Partial<Frame>) => void
+  updateFrameData: (id: string, updates: Record<string, unknown>) => void
   deleteFrame: (id: string) => void
   selectFrame: (id: string, multiSelect?: boolean) => void
   selectFrames: (ids: string[]) => void
@@ -62,12 +64,20 @@ export const useFrameStore = create<FrameState>()(persist((set, get) => ({
       frames: [...state.frames, newFrame],
       nextZIndex: nextZIndex + 1,
     }))
+    return newFrame.id
   },
   
   updateFrame: (id, updates) => {
     set((state) => ({
       frames: state.frames.map(frame => 
         frame.id === id ? { ...frame, ...updates } : frame
+      )
+    }))
+  },
+  updateFrameData: (id, updates) => {
+    set((state) => ({
+      frames: state.frames.map(frame => 
+        frame.id === id ? { ...frame, data: { ...(frame.data || {}), ...updates } } : frame
       )
     }))
   },
