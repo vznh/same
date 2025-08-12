@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
+import { useFrameStore } from '@/stores/frameStore'
 import { executeFrameAction } from '@/services/frameExecutor'
 import { validateFrameAction, FrameAction } from '@/models/frame'
 
@@ -32,7 +33,8 @@ export default function AgentModal({ isOpen, onClose }: { isOpen: boolean; onClo
     setDraft('')
     setLoading(true)
     try {
-      const res = await axios.post('/api/ai/frames/parse', { text })
+      const frames = useFrameStore.getState().frames.map(f => ({ id: f.id, title: f.title }))
+      const res = await axios.post('/api/ai/frames/parse', { text, frames })
       const data = res.data as { ok: boolean; action?: unknown; error?: string }
       if (!data.ok || !data.action) {
         setMessages((prev) => [

@@ -1,46 +1,53 @@
 // stores/connectionStore
 'use client'
-
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { useFrameStore } from '@/stores/frameStore'
 
 export interface Connection {
   id: string
-  a: string // frameId
-  b: string // frameId
+  // Undirected connection between two frames
+  a: string
+  b: string
 }
 
-type PendingStart = { sourceFrameId: string } | null
-type PendingReattach = { connectionId: string; endpoint: 'a' | 'b' } | null
+export type EndpointKey = 'a' | 'b'
+
+interface CursorPosition {
+  x: number
+  y: number
+}
 
 interface ConnectionState {
   connections: Connection[]
   selectedConnectionId: string | null
-  pendingStart: PendingStart
-  pendingReattach: PendingReattach
-  pendingCursor: { x: number; y: number } | null
 
-  // CRUD
+  // Pending creation (user started from a frame, following cursor)
+  pendingFromFrameId: string | null
+  pendingCursor: CursorPosition | null
+
+  // Endpoint reattach state
+  draggingEndpoint: { connectionId: string; endpoint: EndpointKey } | null
+
+  // Actions
   addConnection: (a: string, b: string) => void
-  removeConnection: (id: string) => void
-  updateConnection: (id: string, updates: Partial<Pick<Connection, 'a' | 'b'>>) => void
+  removeConnection: (connectionId: string) => void
+  removeConnectionsForFrame: (frameId: string) => void
+  selectConnection: (connectionId: string | null) => void
 
-  // Selection
-  setSelectedConnection: (id: string | null) => void
-
-  // Pending creation/reattach
-  startConnectionFrom: (sourceFrameId: string) => void
+  startPending: (fromFrameId: string) => void
+  updatePendingCursor: (x: number, y: number) => void
   clearPending: () => void
-  startReattach: (connectionId: string, endpoint: 'a' | 'b') => void
-  clearReattach: () => void
-  setPendingCursor: (x: number, y: number) => void
 
-  // Queries
-  findConnectionBetween: (a: string, b: string) => Connection | undefined
-  getConnectionsForFrame: (frameId: string) => Connection[]
-  getConnectedComponentIds: (startId: string) => string[]
-  getAggregatedContentForComponent: (startId: string) => React.ReactNode[]
+  startDragEndpoint: (connectionId: string, endpoint: EndpointKey) => void
+  clearDragEndpoint: () => void
+  reattachEndpoint: (connectionId: string, endpoint: EndpointKey, toFrameId: string) => void
+
+  hasConnectionBetween: (a: string, b: string) => boolean
+  getConnectedComponent: (startId: string) => string[]
+}
+
+function normalizePair(a: string, b: string): [string, string] {
+  return a < b ? [a, b] : [b, a]
 }
 
 export const useConnectionStore = create<ConnectionState>()(
@@ -48,82 +55,93 @@ export const useConnectionStore = create<ConnectionState>()(
     (set, get) => ({
       connections: [],
       selectedConnectionId: null,
-      pendingStart: null,
-      pendingReattach: null,
+      pendingFromFrameId: null,
       pendingCursor: null,
+      draggingEndpoint: null,
 
       addConnection: (a, b) => {
-        if (a === b) return // prevent self-connection
-        const exists = get().findConnectionBetween(a, b)
-        if (exists) return
-        const newConn: Connection = {
-          id: `conn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-          a,
-          b,
-        }
-        set((state) => ({ connections: [...state.connections, newConn] }))
+        if (a === b) return
+        const [na, nb] = normalizePair(a, b)
+        if (get().connections.some(c => {
+          const [ca, cb] = normalizePair(c.a, c.b)
+          return ca === na && cb === nb
+        })) return
+        const id = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+        set(state => ({ connections: [...state.connections, { id, a: na, b: nb }] }))
       },
 
-      removeConnection: (id) => {
-        set((state) => ({
-          connections: state.connections.filter((c) => c.id !== id),
-          selectedConnectionId:
-            state.selectedConnectionId === id ? null : state.selectedConnectionId,
+      removeConnection: (connectionId) => {
+        set(state => ({
+          connections: state.connections.filter(c => c.id !== connectionId),
+          selectedConnectionId: state.selectedConnectionId === connectionId ? null : state.selectedConnectionId,
         }))
       },
 
-      updateConnection: (id, updates) => {
-        set((state) => ({
-          connections: state.connections.map((c) =>
-            c.id === id ? { ...c, ...updates } : c
-          ),
+      removeConnectionsForFrame: (frameId) => {
+        set(state => ({
+          connections: state.connections.filter(c => c.a !== frameId && c.b !== frameId),
+          selectedConnectionId: state.selectedConnectionId && state.connections.find(c => c.id === state.selectedConnectionId && (c.a === frameId || c.b === frameId)) ? null : state.selectedConnectionId,
         }))
       },
 
-      setSelectedConnection: (id) => set({ selectedConnectionId: id }),
+      selectConnection: (connectionId) => set({ selectedConnectionId: connectionId }),
 
-      startConnectionFrom: (sourceFrameId) => set({ pendingStart: { sourceFrameId } }),
-      clearPending: () => set({ pendingStart: null, pendingCursor: null }),
-      startReattach: (connectionId, endpoint) => set({ pendingReattach: { connectionId, endpoint } }),
-      clearReattach: () => set({ pendingReattach: null }),
-      setPendingCursor: (x, y) => set({ pendingCursor: { x, y } }),
+      startPending: (fromFrameId) => set({ pendingFromFrameId: fromFrameId }),
+      updatePendingCursor: (x, y) => set({ pendingCursor: { x, y } }),
+      clearPending: () => set({ pendingFromFrameId: null, pendingCursor: null }),
 
-      findConnectionBetween: (a, b) => {
-        const [x, y] = a < b ? [a, b] : [b, a]
-        return get().connections.find((c) => {
-          const [u, v] = c.a < c.b ? [c.a, c.b] : [c.b, c.a]
-          return u === x && v === y
+      startDragEndpoint: (connectionId, endpoint) => set({ draggingEndpoint: { connectionId, endpoint } }),
+      clearDragEndpoint: () => set({ draggingEndpoint: null }),
+
+      reattachEndpoint: (connectionId, endpoint, toFrameId) => {
+        if (!toFrameId) return
+        set(state => {
+          const idx = state.connections.findIndex(c => c.id === connectionId)
+          if (idx === -1) return state
+          const conn = state.connections[idx]
+          const other = endpoint === 'a' ? conn.b : conn.a
+          if (toFrameId === other) return state // no change
+          if (toFrameId === (endpoint === 'a' ? conn.a : conn.b)) return state
+          if (toFrameId === (endpoint === 'a' ? conn.b : conn.a)) return state
+          // prevent self-connection and duplicate pairs
+          if (toFrameId === other) return state
+          const [na, nb] = normalizePair(other, toFrameId)
+          if (state.connections.some(c => {
+            const [ca, cb] = normalizePair(c.a, c.b)
+            return c.id !== connectionId && ca === na && cb === nb
+          })) return state
+          const updated: Connection = endpoint === 'a' ? { ...conn, a: toFrameId } : { ...conn, b: toFrameId }
+          const [ua, ub] = normalizePair(updated.a, updated.b)
+          const normalized: Connection = { ...updated, a: ua, b: ub }
+          const next = state.connections.slice()
+          next[idx] = normalized
+          return { ...state, connections: next }
         })
       },
 
-      getConnectionsForFrame: (frameId) => {
-        return get().connections.filter((c) => c.a === frameId || c.b === frameId)
+      hasConnectionBetween: (a, b) => {
+        const [na, nb] = normalizePair(a, b)
+        return get().connections.some(c => {
+          const [ca, cb] = normalizePair(c.a, c.b)
+          return ca === na && cb === nb
+        })
       },
 
-      getConnectedComponentIds: (startId) => {
+      getConnectedComponent: (startId) => {
         const visited = new Set<string>()
         const queue: string[] = [startId]
+        const neighbors = (id: string) => get().connections
+          .filter(c => c.a === id || c.b === id)
+          .map(c => (c.a === id ? c.b : c.a))
         while (queue.length) {
-          const cur = queue.shift()!
-          if (visited.has(cur)) continue
-          visited.add(cur)
-          const neighbors = get()
-            .connections
-            .filter((c) => c.a === cur || c.b === cur)
-            .map((c) => (c.a === cur ? c.b : c.a))
-          for (const n of neighbors) {
+          const id = queue.shift()!
+          if (visited.has(id)) continue
+          visited.add(id)
+          for (const n of neighbors(id)) {
             if (!visited.has(n)) queue.push(n)
           }
         }
         return Array.from(visited)
-      },
-
-      getAggregatedContentForComponent: (startId) => {
-        const frameStore = useFrameStore.getState()
-        const ids = get().getConnectedComponentIds(startId)
-        return frameStore.frames
-          .filter((f) => ids.includes(f.id))
-          .map((f) => f.content)
       },
     }),
     {

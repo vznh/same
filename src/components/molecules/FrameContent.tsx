@@ -2,16 +2,20 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
-import { QuestionMarkCircledIcon, DrawingPinIcon, ArrowUpIcon, PlusCircledIcon } from '@radix-ui/react-icons'
+import { QuestionMarkCircledIcon, DrawingPinIcon, ArrowUpIcon } from '@radix-ui/react-icons'
 import axios from 'axios'
 import { useFrameContext } from '@/contexts/FrameContext'
 import { usePlanChatStore } from '@/stores/planChatStore'
+import RenderNode from './RenderNode'
+import { validateUINode, UINode } from '@/models/uiNode'
+import { useFrameStore } from '@/stores/frameStore'
 import Image from 'next/image'
 
 // Text Frame Content
 export function TextFrameContent() {
   const [action, setAction] = useState('')
   const actionRef = useRef<HTMLTextAreaElement | null>(null)
+  const { addFrame } = useFrameStore()
 
   const autoResize = () => {
     if (!actionRef.current) return
@@ -61,16 +65,65 @@ export function TextFrameContent() {
             ref={actionRef}
             value={action}
             onChange={(e) => setAction(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                const instruction = action.trim()
+                if (!instruction) return
+                try {
+                  const res = await axios.post('/api/ai/text/generate', { instruction })
+                  const data = res.data as { ok: boolean; ui?: unknown }
+                  if (data.ok && data.ui) {
+                    const v = validateUINode(data.ui)
+                    if (v.ok) {
+                      const idx = useFrameStore.getState().frames.filter(f => f.title?.startsWith('Generation ')).length
+                      addFrame({
+                        title: `Generation ${idx + 1}`,
+                        x: 200,
+                        y: 150,
+                        width: 450,
+                        height: 350,
+                        content: <RenderNode node={v.node as UINode} />,
+                        type: 'custom',
+                      })
+                      setAction('')
+                    }
+                  }
+                } catch {}
+              }
+            }}
             rows={2}
             className="w-full bg-transparent text-sm text-gray-800 placeholder-gray-400/60 outline-none resize-none overflow-hidden"
             placeholder="Create a website for a coffee shop with a dark mocha color way"
           />
           <div className="flex flex-col space-y-1">
-            <button className="w-6 h-6 bg-gray-100 rounded-[5px] flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors">
+            <button className="w-6 h-6 bg-gray-100 rounded-[5px] flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+              onClick={async () => {
+                const instruction = action.trim()
+                if (!instruction) return
+                try {
+                  const res = await axios.post('/api/ai/text/generate', { instruction })
+                  const data = res.data as { ok: boolean; ui?: unknown }
+                  if (data.ok && data.ui) {
+                    const v = validateUINode(data.ui)
+                    if (v.ok) {
+                      const idx = useFrameStore.getState().frames.filter(f => f.title?.startsWith('Generation ')).length
+                      addFrame({
+                        title: `Generation ${idx + 1}`,
+                        x: 200,
+                        y: 150,
+                        width: 450,
+                        height: 350,
+                        content: <RenderNode node={v.node as UINode} />,
+                        type: 'custom',
+                      })
+                      setAction('')
+                    }
+                  }
+                } catch {}
+              }}
+            >
               <ArrowUpIcon className="w-4 h-4" />
-            </button>
-            <button className="w-6 h-6 bg-gray-100 rounded-[5px] flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors">
-              <PlusCircledIcon className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -85,13 +138,35 @@ export function ImageFrameContent() {
   const [isDragging, setIsDragging] = useState(false)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { addFrame } = useFrameStore()
 
-  const handleFiles = (files: FileList | null) => {
+  const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     const file = files[0]
     if (!file.type.startsWith('image/')) return
     const reader = new FileReader()
-    reader.onload = () => setPreviewSrc(reader.result as string)
+    reader.onload = async () => {
+      const src = reader.result as string
+      setPreviewSrc(src)
+      // Immediately pass-through the image into a generated frame without calling the AI
+      const ui: UINode = {
+        type: 'Stack',
+        props: { direction: 'vertical', gap: 12, className: 'p-3' },
+        children: [
+          { type: 'Image', props: { src, alt: 'Uploaded image', className: 'max-w-full max-h-full object-contain rounded' } },
+        ],
+      }
+      const idx = useFrameStore.getState().frames.filter(f => f.title?.startsWith('Generation ')).length
+      addFrame({
+        title: `Generation ${idx + 1}`,
+        x: 200,
+        y: 150,
+        width: 450,
+        height: 350,
+        content: <RenderNode node={ui} />,
+        type: 'custom',
+      })
+    }
     reader.readAsDataURL(file)
   }
 
@@ -233,38 +308,56 @@ export function HTMLFrameContent() {
 // Plan/Chat Frame Content (scrollable chat with helper text)
 export function PlanFrameContent() {
   const { frameId } = useFrameContext()
-  const { conversations, appendMessage } = usePlanChatStore()
+  const { conversations, appendMessage, setReady, ready, setPreview, preview } = usePlanChatStore()
   const messages = conversations[frameId] || []
+  const isReady = !!ready[frameId]
+  const previewText = preview[frameId] || null
+  const { addFrame } = useFrameStore()
   const [draft, setDraft] = useState('')
   const draftRef = useRef<HTMLTextAreaElement | null>(null)
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const SYSTEM_PROMPT = `You are an AI assistant. When the user shares a rough idea, respond with concise, direct questions to clarify and specify the concept. Avoid unnecessary enthusiasm or commentary. Your questions should:
- • Be brief and to the point.
- • Focus on extracting specific details (e.g., audience, purpose, features, constraints).
- • Build logically on previous answers.
- • Avoid suggestions or advice unless requested.
+  const SYSTEM_PROMPT = `You are a product-planning assistant. Your job is to elicit precise requirements through short, targeted questions, then converge on a buildable spec.
 
-Example Interaction:
+Rules:
+- Ask ONE focused question per turn.
+- Keep it brief and neutral (no enthusiasm or filler).
+- Prefer concrete options and checklists the user can pick from.
+- If the user is non‑technical or uncertain, offer 2–4 clear choices with plain-language trade‑offs.
+- Build logically on prior answers; don’t repeat covered ground.
+- Do not suggest solutions unless the question needs options.
+- Stop and summarize only when the user explicitly asks.
 
-User: I want to make an app that helps people read more books.
+Prioritize clarifying across these areas (top → bottom):
+1) Product and users
+   - Target users, core job-to-be-done, primary outcome, must-have vs nice-to-have.
+2) Scope and flows
+   - Key screens/flows, minimal milestone (v0), non-goals.
+3) Data and integration constraints
+   - Data sources/ownership, APIs/integrations, input formats, storage/retention.
+4) Platform and distribution
+   - Web/Native/Desktop; devices; auth model (email, SSO, guest).
+5) Quality and limitations
+   - Performance (latency/throughput), scale, cost/limits, offline, A11y, i18n.
+6) Security/compliance
+   - Privacy, PII/PHI, encryption, audit, regulatory needs (e.g., GDPR).
+7) Technical decisions (only when needed)
+   - Offer small option sets with plain-language trade‑offs.
 
-AI: Who is the target user?
-User: Casual readers.
-AI: What’s their main obstacle?
-User: Motivation.
-AI: Preferred method: reminders, social features, or gamification?
-User: Gamification.
-AI: What rewards do you want to include?
+Style examples:
+- Product: "Who uses this first: students, freelancers, or small teams?"
+- Scope: "Which v0 flow is essential: sign-in, capture content, or export?"
+- Data: "Where does the source data come from: upload, URL, or API?"
+- Platform: "Target first: Web desktop (Chrome/Safari) or mobile?"
+- Quality: "Latency target for main action: ~0.5s, ~1s, or ~2s?"
+- Security: "Any PII/PHI stored? yes/no"
+- Tech (if asked): "Storage: local only vs cloud (easy sharing) — preference?"
 
-Instructions for the AI:
- • After each user idea, ask a direct, specific question.
- • Keep questions short and focused.
- • Do not express interest or encouragement.
- • Continue until the idea is fully detailed or the user is done.
-
-Let me know if you want this tailored for a specific platform or use case.`
+Behavior:
+- After each reply, ask one direct, specific question next.
+- If the user is stuck, propose 2–3 defaults to choose from.
+- Do not express encouragement or opinions.`
 
   const resize = () => {
     if (!draftRef.current) return
@@ -285,19 +378,42 @@ Let me know if you want this tailored for a specific platform or use case.`
     setDraft('')
     setIsSending(true)
     try {
-      const res = await axios.post('/api/ai/chat', {
+      const res = await axios.post('/api/ai/plan/step', {
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           ...messages,
           { role: 'user', content: text },
         ],
       })
-      const data = res.data as { ok: boolean; reply?: string; error?: string }
+      const data = res.data as { ok: boolean; reply?: string; error?: string; ui?: unknown }
       if (!data.ok || !data.reply) {
         setError(data.error || 'No reply')
         return
       }
       appendMessage(frameId, { role: 'assistant', content: data.reply as string })
+      // Detect readiness
+      const userReady = /\bready to build\b/i.test(text)
+      const assistantReady = /\bready to build\b/i.test(data.reply || '')
+      if (userReady || assistantReady) {
+        setReady(frameId, true)
+        // If UI JSON provided, validate and store as preview json string
+        if (data.ui) {
+          const validated = validateUINode(data.ui)
+          if (validated.ok) setPreview(frameId, JSON.stringify(validated.node))
+        }
+        // Auto-create a new frame for the preview with indexed naming
+        const uiJson = data.ui && validateUINode(data.ui).ok ? JSON.stringify((validateUINode(data.ui) as any).node) : previewText
+        const existingGenerations = useFrameStore.getState().frames.filter(f => f.title?.startsWith('Generation ')).length
+        addFrame({
+          title: `Generation ${existingGenerations + 1}`,
+          x: 200,
+          y: 150,
+          width: 450,
+          height: 350,
+          content: uiJson ? <RenderNode node={JSON.parse(uiJson) as UINode} /> : <div className="p-4 text-sm text-gray-700">Generated content</div>,
+          type: 'custom',
+        })
+      }
     } catch (e) {
       setError('Request failed')
     } finally {
@@ -314,11 +430,30 @@ Let me know if you want this tailored for a specific platform or use case.`
 
   return (
     <div className="w-full h-full p-4 rounded-[10px] tracking-tight flex flex-col">
-      {/* Title placeholder (40% opacity) */}
-      <div className="text-gray-900/40 mb-2 select-none">
-        Plan out your approach with follow-up questions to match your preference
-      </div>
-      <div className="h-px w-full bg-gray-200/70" />
+      {/* Preview or planning header */}
+      {isReady && (
+        <div className="mb-2">
+          <div className="text-sm text-gray-900/70 mb-2 select-none">Preview (not building yet)</div>
+          {previewText ? (
+            <div className="p-3 rounded border bg-white text-sm text-gray-800">
+              {/* Render validated UI JSON */}
+              <RenderNode node={JSON.parse(previewText) as UINode} />
+            </div>
+          ) : (
+            <div className="p-3 rounded border bg-white text-sm text-gray-800 whitespace-pre-wrap">
+              Ready to build. Provide final confirmation or adjustments.
+            </div>
+          )}
+        </div>
+      )}
+      {!isReady && (
+        <>
+          <div className="text-gray-900/40 mb-2 select-none">
+            Plan out your approach with follow-up questions to match your preference
+          </div>
+          <div className="h-px w-full bg-gray-200/70" />
+        </>
+      )}
 
       {/* Chat area */}
 
@@ -339,6 +474,11 @@ Let me know if you want this tailored for a specific platform or use case.`
         {messages.length <= 1 && (
           <div className="text-gray-900/40 text-base select-none">
             If you still have a plan, and want to flesh it out a bit more
+          </div>
+        )}
+        {messages.length >= 1 && !isReady && (
+          <div className="text-xs text-gray-500 select-none">
+            Say <span className="font-medium">ready to build</span> when you're confident
           </div>
         )}
         {error && (

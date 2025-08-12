@@ -21,16 +21,22 @@ export default function Frame({ frame, children }: FrameProps) {
   // Handle frame selection
   const handleFrameClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
+    const target = e.target as HTMLElement
+    const isInteractive = !!target.closest('input, textarea, select, button, [contenteditable="true"], [data-scrollable]')
     selectFrame(frame.id, e.metaKey || e.ctrlKey)
     bringToFront(frame.id)
-    // Ensure the frame receives keyboard focus for in-frame actions/scrolling
-    frameRef.current?.focus()
+    if (!isInteractive) {
+      // Only focus the frame when not interacting with inner controls
+      frameRef.current?.focus()
+    }
   }, [frame.id, selectFrame, bringToFront])
 
   // Fullscreen on double click
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    // Respect frames that should not enter fullscreen (e.g., placeholders)
+    const target = e.target as HTMLElement
+    const isInteractive = !!target.closest('input, textarea, select, button, [contenteditable="true"], [data-scrollable]')
+    if (isInteractive) return
     if ((frame as any).flags?.disableFullscreen) return
     enterFullscreen(frame.id)
   }, [enterFullscreen, frame.id])
@@ -201,6 +207,133 @@ export default function Frame({ frame, children }: FrameProps) {
       return
     }
   }, [frame.id, frame.x, frame.y, frame.width, frame.height, selectFrame, bringToFront, updateFrame])
+
+  // Touch support for mobile: resize and drag
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const target = e.target as HTMLElement
+    const touch = e.touches[0]
+    if (!touch) return
+
+    // Resize via handle
+    if (target.closest('.resize-handle')) {
+      e.stopPropagation()
+      e.preventDefault()
+      selectFrame(frame.id)
+      bringToFront(frame.id)
+
+      const handleEl = target.closest('.resize-handle') as HTMLElement
+      const dir = handleEl?.dataset?.dir as
+        | 'right'
+        | 'left'
+        | 'bottom'
+        | 'top'
+        | 'bottom-right'
+        | 'bottom-left'
+        | 'top-right'
+        | 'top-left'
+        | undefined
+
+      const start = {
+        touchX: touch.clientX,
+        touchY: touch.clientY,
+        x: frame.x,
+        y: frame.y,
+        width: frame.width,
+        height: frame.height,
+      }
+      const minW = 200
+      const minH = 150
+
+      const onMove = (ev: TouchEvent) => {
+        const t = ev.touches[0]
+        if (!t) return
+        const dx = t.clientX - start.touchX
+        const dy = t.clientY - start.touchY
+
+        let newX = start.x
+        let newY = start.y
+        let newW = start.width
+        let newH = start.height
+
+        switch (dir) {
+          case 'right':
+            newW = Math.max(minW, start.width + dx)
+            break
+          case 'left':
+            newW = Math.max(minW, start.width - dx)
+            newX = start.x + Math.min(dx, start.width - minW)
+            break
+          case 'bottom':
+            newH = Math.max(minH, start.height + dy)
+            break
+          case 'top':
+            newH = Math.max(minH, start.height - dy)
+            newY = start.y + Math.min(dy, start.height - minH)
+            break
+          case 'bottom-right':
+            newW = Math.max(minW, start.width + dx)
+            newH = Math.max(minH, start.height + dy)
+            break
+          case 'bottom-left':
+            newW = Math.max(minW, start.width - dx)
+            newX = start.x + Math.min(dx, start.width - minW)
+            newH = Math.max(minH, start.height + dy)
+            break
+          case 'top-right':
+            newW = Math.max(minW, start.width + dx)
+            newH = Math.max(minH, start.height - dy)
+            newY = start.y + Math.min(dy, start.height - minH)
+            break
+          case 'top-left':
+            newW = Math.max(minW, start.width - dx)
+            newX = start.x + Math.min(dx, start.width - minW)
+            newH = Math.max(minH, start.height - dy)
+            newY = start.y + Math.min(dy, start.height - minH)
+            break
+          default:
+            break
+        }
+
+        updateFrame(frame.id, { width: newW, height: newH, x: newX, y: newY, isResizing: true })
+      }
+
+      const onEnd = () => {
+        updateFrame(frame.id, { isResizing: false })
+        document.removeEventListener('touchmove', onMove, { capture: false } as any)
+        document.removeEventListener('touchend', onEnd, { capture: false } as any)
+      }
+
+      document.addEventListener('touchmove', onMove, { passive: false })
+      document.addEventListener('touchend', onEnd)
+      return
+    }
+
+    // Dragging
+    const isInteractive = !!target.closest('input, textarea, select, button, [contenteditable="true"], [data-scrollable]')
+    if (!isInteractive && (e.target === frameRef.current || (frameRef.current && frameRef.current.contains(target)))) {
+      e.stopPropagation()
+      e.preventDefault()
+      selectFrame(frame.id)
+      bringToFront(frame.id)
+      const startX = touch.clientX - frame.x
+      const startY = touch.clientY - frame.y
+
+      const onMove = (ev: TouchEvent) => {
+        const t = ev.touches[0]
+        if (!t) return
+        updateFrame(frame.id, { x: t.clientX - startX, y: t.clientY - startY, isDragging: true })
+      }
+
+      const onEnd = () => {
+        updateFrame(frame.id, { isDragging: false })
+        document.removeEventListener('touchmove', onMove, { capture: false } as any)
+        document.removeEventListener('touchend', onEnd, { capture: false } as any)
+      }
+
+      document.addEventListener('touchmove', onMove, { passive: false })
+      document.addEventListener('touchend', onEnd)
+    }
+  }, [bringToFront, frame.id, frame.x, frame.y, selectFrame, updateFrame])
   
   // Derive floating label from frame type
   const getFloatingLabel = (): string => {
@@ -255,7 +388,9 @@ export default function Frame({ frame, children }: FrameProps) {
 
   // Keep focus after mouse interactions within the frame
   const handleContainerMouseUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (frameRef.current && (e.target === frameRef.current || frameRef.current.contains(e.target as Node))) {
+    const target = e.target as HTMLElement
+    const isInteractive = !!target.closest('input, textarea, select, button, [contenteditable="true"], [data-scrollable]')
+    if (!isInteractive && frameRef.current && (e.target === frameRef.current || frameRef.current.contains(e.target as Node))) {
       frameRef.current.focus()
     }
   }, [])
@@ -289,6 +424,7 @@ export default function Frame({ frame, children }: FrameProps) {
       onClick={handleFrameClick}
       onMouseDown={handleMouseDown}
       onDoubleClick={handleDoubleClick}
+      onTouchStart={handleTouchStart}
       onMouseUp={handleContainerMouseUp}
       onKeyDown={handleKeyDown}
       data-frame

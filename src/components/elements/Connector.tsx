@@ -1,137 +1,116 @@
 // components/elements/Connector
 'use client'
+import * as React from 'react'
+import { useConnectionStore, EndpointKey } from '@/stores/connectionStore'
 
-import React, { useMemo } from 'react'
-import { useFrameStore } from '@/stores/frameStore'
-import { useConnectionStore, Connection } from '@/stores/connectionStore'
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
+export interface Rect {
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
-function getAttachmentPoint(frame: { x: number; y: number; width: number; height: number }, target: { x: number; y: number }) {
-  const left = frame.x
-  const right = frame.x + frame.width
-  const top = frame.y
-  const bottom = frame.y + frame.height
-  const centerX = frame.x + frame.width / 2
-  const centerY = frame.y + frame.height / 2
-
-  const dx = target.x - centerX
-  const dy = target.y - centerY
-
-  const absDx = Math.abs(dx)
-  const absDy = Math.abs(dy)
-
-  if (absDx > absDy) {
-    // Attach on left/right side
-    if (dx >= 0) {
-      return { x: right, y: clamp(target.y, top, bottom), side: 'right' as const }
-    }
-    return { x: left, y: clamp(target.y, top, bottom), side: 'left' as const }
-  } else {
-    // Attach on top/bottom side
-    if (dy >= 0) {
-      return { x: clamp(target.x, left, right), y: bottom, side: 'bottom' as const }
-    }
-    return { x: clamp(target.x, left, right), y: top, side: 'top' as const }
-  }
-}
-
-function cubicPath(p0: { x: number; y: number }, p1: { x: number; y: number }) {
-  const dx = p1.x - p0.x
-  const dy = p1.y - p0.y
-  const curve = Math.max(40, Math.min(200, Math.hypot(dx, dy) * 0.3))
-  const c1 = { x: p0.x + curve, y: p0.y }
-  const c2 = { x: p1.x - curve, y: p1.y }
-  return `M ${p0.x},${p0.y} C ${c1.x},${c1.y} ${c2.x},${c2.y} ${p1.x},${p1.y}`
-}
-
-export function ConnectorLine({ connection, isSelected, onClick, onStartDragEndpoint }: {
-  connection: Connection
+export interface ConnectorProps {
+  id: string
+  aFrameId: string
+  bFrameId: string
+  framesById: Record<string, Rect>
   isSelected: boolean
-  onClick?: (e: React.MouseEvent) => void
-  onStartDragEndpoint?: (endpoint: 'a' | 'b', e: React.MouseEvent) => void
-}) {
-  const { frames } = useFrameStore()
-  const { pendingReattach } = useConnectionStore()
-  const a = frames.find((f) => f.id === connection.a)
-  const b = frames.find((f) => f.id === connection.b)
-  if (!a || !b) return null
+}
 
-  const aAttach = getAttachmentPoint(a, { x: b.x + b.width / 2, y: b.y + b.height / 2 })
-  const bAttach = getAttachmentPoint(b, { x: a.x + a.width / 2, y: a.y + a.height / 2 })
-  const d = cubicPath(aAttach, bAttach)
+function getCenter(rect: Rect) {
+  return { cx: rect.x + rect.width / 2, cy: rect.y + rect.height / 2 }
+}
 
-  // Small draggable handles at each endpoint for reattach
-  const handleRadius = isSelected ? 6 : 4
-  const strokeColor = isSelected ? '#3b82f6' : '#9ca3af'
+function lineRectIntersection(from: { x: number; y: number }, rect: Rect, toward: { x: number; y: number }) {
+  // Compute intersection point of line from 'toward' to 'from' with rect's perimeter closest to 'from'.
+  // Approach: parametric intersection against each side, choose valid with smallest t in (0,1].
+  const { x, y, width, height } = rect
+  const x2 = x + width
+  const y2 = y + height
+  const dx = toward.x - from.x
+  const dy = toward.y - from.y
+  const candidates: { x: number; y: number; t: number }[] = []
+  // Left (x)
+  if (dx !== 0) {
+    const t = (x - from.x) / dx
+    const yy = from.y + t * dy
+    if (t > 0 && yy >= y && yy <= y2) candidates.push({ x, y: yy, t })
+  }
+  // Right
+  if (dx !== 0) {
+    const t = (x2 - from.x) / dx
+    const yy = from.y + t * dy
+    if (t > 0 && yy >= y && yy <= y2) candidates.push({ x: x2, y: yy, t })
+  }
+  // Top (y)
+  if (dy !== 0) {
+    const t = (y - from.y) / dy
+    const xx = from.x + t * dx
+    if (t > 0 && xx >= x && xx <= x2) candidates.push({ x: xx, y, t })
+  }
+  // Bottom
+  if (dy !== 0) {
+    const t = (y2 - from.y) / dy
+    const xx = from.x + t * dx
+    if (t > 0 && xx >= x && xx <= x2) candidates.push({ x: xx, y: y2, t })
+  }
+  if (candidates.length === 0) return { x: from.x, y: from.y }
+  candidates.sort((a, b) => a.t - b.t)
+  return { x: candidates[0].x, y: candidates[0].y }
+}
+
+function pathForCurve(p1: { x: number; y: number }, p2: { x: number; y: number }) {
+  const dx = (p2.x - p1.x) * 0.3
+  const dy = (p2.y - p1.y) * 0.3
+  const c1 = { x: p1.x + dx, y: p1.y + dy }
+  const c2 = { x: p2.x - dx, y: p2.y - dy }
+  return `M ${p1.x},${p1.y} C ${c1.x},${c1.y} ${c2.x},${c2.y} ${p2.x},${p2.y}`
+}
+
+export const Connector: React.FC<ConnectorProps> = ({ id, aFrameId, bFrameId, framesById, isSelected }) => {
+  const { selectConnection, startDragEndpoint } = useConnectionStore()
+
+  const aRect = framesById[aFrameId]
+  const bRect = framesById[bFrameId]
+  if (!aRect || !bRect) return null
+
+  const { cx: acx, cy: acy } = getCenter(aRect)
+  const { cx: bcx, cy: bcy } = getCenter(bRect)
+  const aAnchor = lineRectIntersection({ x: acx, y: acy }, aRect, { x: bcx, y: bcy })
+  const bAnchor = lineRectIntersection({ x: bcx, y: bcy }, bRect, { x: acx, y: acy })
+  const d = pathForCurve(aAnchor, bAnchor)
+
+  const stroke = isSelected ? '#2563eb' : '#9ca3af'
   const strokeWidth = isSelected ? 3 : 2
 
+  const onSelect = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    selectConnection(id)
+  }
+
+  const onDragEndpoint = (endpoint: EndpointKey) => (e: React.MouseEvent) => {
+    e.stopPropagation()
+    startDragEndpoint(id, endpoint)
+  }
+
   return (
-    <g className="pointer-events-auto" onClick={onClick}>
-      <path d={d} fill="none" stroke={strokeColor} strokeWidth={strokeWidth} />
-      <circle
-        cx={aAttach.x}
-        cy={aAttach.y}
-        r={handleRadius}
-        fill="#ffffff"
-        stroke={strokeColor}
-        strokeWidth={2}
-        onMouseDown={(e) => onStartDragEndpoint?.('a', e)}
-      />
-      <circle
-        cx={bAttach.x}
-        cy={bAttach.y}
-        r={handleRadius}
-        fill="#ffffff"
-        stroke={strokeColor}
-        strokeWidth={2}
-        onMouseDown={(e) => onStartDragEndpoint?.('b', e)}
-      />
+    <g>
+      <path d={d} stroke={stroke} strokeWidth={strokeWidth} fill="none" onMouseDown={onSelect} />
+      {/* Endpoint handles */}
+      <circle cx={aAnchor.x} cy={aAnchor.y} r={6} fill="#fff" stroke={stroke} strokeWidth={2} onMouseDown={onDragEndpoint('a')} />
+      <circle cx={bAnchor.x} cy={bAnchor.y} r={6} fill="#fff" stroke={stroke} strokeWidth={2} onMouseDown={onDragEndpoint('b')} />
+      {/* Emphasis rings when selected */}
+      {isSelected && (
+        <>
+          <circle cx={aAnchor.x} cy={aAnchor.y} r={10} fill="none" stroke="#bfdbfe" strokeWidth={2} />
+          <circle cx={bAnchor.x} cy={bAnchor.y} r={10} fill="none" stroke="#bfdbfe" strokeWidth={2} />
+        </>
+      )}
     </g>
   )
 }
 
-export function PendingConnector({ sourceFrameId, cursor }: { sourceFrameId: string; cursor: { x: number; y: number } }) {
-  const { frames } = useFrameStore()
-  const a = frames.find((f) => f.id === sourceFrameId)
-  if (!a) return null
-  const aAttach = getAttachmentPoint(a, cursor)
-  const d = cubicPath(aAttach, cursor)
-  return <path d={d} fill="none" stroke="#9ca3af" strokeDasharray="6 6" strokeWidth={2} />
-}
-
-export default function ConnectorLayer() {
-  const { connections, selectedConnectionId, setSelectedConnection, startReattach, pendingStart, pendingCursor } = useConnectionStore()
-
-  return (
-    <svg className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
-      <g className="pointer-events-none">
-        {pendingStart && pendingCursor && (
-          <PendingConnector sourceFrameId={pendingStart.sourceFrameId} cursor={pendingCursor} />
-        )}
-      </g>
-      <g className="pointer-events-auto">
-        {connections.map((c) => (
-          <ConnectorLine
-            key={c.id}
-            connection={c}
-            isSelected={selectedConnectionId === c.id}
-            onClick={(e) => {
-              e.stopPropagation()
-              setSelectedConnection(c.id)
-            }}
-            onStartDragEndpoint={(endpoint, e) => {
-              e.stopPropagation()
-              setSelectedConnection(c.id)
-              startReattach(c.id, endpoint)
-            }}
-          />)
-        )}
-      </g>
-    </svg>
-  )
-}
+export default Connector
 
 

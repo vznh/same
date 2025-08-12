@@ -347,6 +347,19 @@ export default function Workspace() {
     setContextMenu({ isVisible: false, position: { x: 0, y: 0 }, screenPosition: { x: 0, y: 0 } })
   }, [])
 
+  // Helper to open context menu at a specific screen coordinate
+  const openContextMenuAtScreen = useCallback((screenX: number, screenY: number) => {
+    const rect = workspaceRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const workspaceX = (screenX - rect.left - panX) / zoom
+    const workspaceY = (screenY - rect.top - panY) / zoom
+    setContextMenu({
+      isVisible: true,
+      position: { x: workspaceX, y: workspaceY },
+      screenPosition: { x: screenX, y: screenY },
+    })
+  }, [panX, panY, zoom])
+
   // Touch handlers for long-press context menu on mobile
   const handleTouchStart = useCallback((e: TouchEvent) => {
     if (!workspaceRef.current) return
@@ -504,20 +517,7 @@ export default function Workspace() {
       
       {/* Frame Creation Buttons removed per design */}
       
-      {/* Instructions */}
-      <div className="fixed bottom-4 left-4 z-50 pointer-events-none">
-        <div className="bg-white px-3 py-2 rounded-lg shadow-sm border pointer-events-auto text-xs text-gray-600">
-          <div>Two-finger trackpad to pan</div>
-          <div>Scroll to zoom</div>
-          <div>Arrow keys to pan</div>
-          <div>+/- to zoom</div>
-          <div>Space/0 to reset</div>
-          <div className="mt-2 pt-2 border-t border-gray-200">
-            <div className="font-medium text-gray-700">Context Menu:</div>
-            <div>Hold mouse for 500ms to create frames</div>
-          </div>
-        </div>
-      </div>
+      {/* Instructions removed per request */}
       
       
       
@@ -612,6 +612,7 @@ export default function Workspace() {
         isVisible={contextMenu.isVisible}
         position={contextMenu.position}
         screenPosition={contextMenu.screenPosition}
+        anchor="aboveCenter"
         onClose={closeContextMenu}
       />
 
@@ -621,7 +622,7 @@ export default function Workspace() {
       {/* Floating Toolbar */}
       <FloatingToolbar
         onImageClick={() => {}}
-        onAddClick={() => setIsAgentOpen(true)}
+        onAddClick={({ x, y }) => openContextMenuAtScreen(x, y)}
         onHistoryClick={() => {}}
         onChatClick={() => setIsAgentOpen(true)}
       />

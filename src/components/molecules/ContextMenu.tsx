@@ -20,6 +20,7 @@ interface ContextMenuProps {
   isVisible: boolean
   position: { x: number; y: number }
   screenPosition: { x: number; y: number }
+  anchor?: 'cursor' | 'aboveCenter'
   onClose: () => void
 }
 
@@ -55,15 +56,16 @@ const MENU_OPTIONS: MenuOption[] = [
   }
 ]
 
-const ContextMenu = ({ isVisible, position, screenPosition, onClose }: ContextMenuProps) => {
+const ContextMenu = ({ isVisible, position, screenPosition, onClose, anchor = 'cursor' }: ContextMenuProps) => {
   const { addFrame } = useFrameStore()
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // Calculate menu position (menu's bottom-left corner slightly offset from cursor)
-  const menuPosition = {
-    left: screenPosition.x + 10, // 10px to the right of cursor
-    top: screenPosition.y - 140, // 140px above cursor so bottom-left of menu is near cursor
-  }
+  // Calculate menu position
+  // Default: near cursor (slightly to the right and above)
+  // For toolbar anchor: center above the trigger
+  const menuPosition = anchor === 'aboveCenter'
+    ? { left: screenPosition.x - 140, top: screenPosition.y - 160 } // center above (menu ~280px wide)
+    : { left: screenPosition.x + 10, top: screenPosition.y - 140 }
 
   // Handle frame creation
   const handleOptionClick = useCallback((option: MenuOption) => {

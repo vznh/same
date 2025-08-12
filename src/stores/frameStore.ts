@@ -37,7 +37,7 @@ interface FrameState {
   moveFrame: (id: string, x: number, y: number) => void
   resizeFrame: (id: string, width: number, height: number) => void
   moveSelectedBy: (dx: number, dy: number) => void
-  setDraggingForSelected: (dragging: boolean) => void
+  setDraggingForSelected: (isDragging: boolean) => void
 }
 
 export const useFrameStore = create<FrameState>()(persist((set, get) => ({
@@ -97,11 +97,14 @@ export const useFrameStore = create<FrameState>()(persist((set, get) => ({
       }
     })
   },
-
+  
   selectFrames: (ids) => {
     set((state) => ({
       selectedFrameIds: ids,
-      frames: state.frames.map((f) => ({ ...f, isSelected: ids.includes(f.id) }))
+      frames: state.frames.map(frame => ({
+        ...frame,
+        isSelected: ids.includes(frame.id)
+      }))
     }))
   },
   
@@ -154,22 +157,23 @@ export const useFrameStore = create<FrameState>()(persist((set, get) => ({
       )
     }))
   },
-
+  
   moveSelectedBy: (dx, dy) => {
+    if (dx === 0 && dy === 0) return
     set((state) => ({
-      frames: state.frames.map((frame) =>
+      frames: state.frames.map(frame => 
         state.selectedFrameIds.includes(frame.id)
-          ? { ...frame, x: frame.x + dx, y: frame.y + dy }
+          ? { ...frame, x: frame.x + dx, y: frame.y + dy, isDragging: true }
           : frame
       )
     }))
   },
 
-  setDraggingForSelected: (dragging) => {
+  setDraggingForSelected: (isDragging) => {
     set((state) => ({
-      frames: state.frames.map((frame) =>
+      frames: state.frames.map(frame => 
         state.selectedFrameIds.includes(frame.id)
-          ? { ...frame, isDragging: dragging }
+          ? { ...frame, isDragging }
           : frame
       )
     }))
@@ -198,9 +202,9 @@ export const useFrameStore = create<FrameState>()(persist((set, get) => ({
   onRehydrateStorage: () => (state) => {
     // Rebuild content nodes based on type after hydration
     if (!state) return
-    return {
-      ...state,
-      frames: state.frames.map(frame => ({ ...frame, content: contentForKind(frame.type) })),
-    }
+    set((s) => ({
+      ...s,
+      frames: s.frames.map(f => ({ ...f, content: contentForKind(f.type) })),
+    }))
   }
 }))
